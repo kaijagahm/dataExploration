@@ -1,0 +1,32 @@
+---
+title: "Sandbox"
+author: "Kaija Gahm"
+date: "2022-10-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(vultureUtils)
+library(move)
+library(igraph)
+```
+
+Download some data from 2020-present to mess around with
+```{r}
+base::load("movebankCredentials/pw.Rda")
+MB.LoginObject <- movebankLogin(username = 'kaijagahm', password = pw)
+rm(pw)
+
+dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T, dateTimeStartUTC = as.POSIXct("2020-01-01 00:00"), dateTimeEndUTC = as.POSIXct("2022-10-04 00:00"))
+save(dat, file = "data/dat.Rda")
+load("data/dat.Rda")
+```
+
+
+
+
