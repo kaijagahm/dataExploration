@@ -18,6 +18,8 @@ library(elevatr) # for getting elevation data
 library(suncalc) # for calculating sunrise and sunset
 source("RST_functions_all.R")
 dyn.load("RST_residenceRadii.so")
+library(ggmap)
+source("bboxFromRad.R")
 ```
 
 Download some data from 2020-present to mess around with
@@ -245,13 +247,13 @@ Now let's re-do the speed and altitude plots, using altitude above ground:
 ```{r}
 # create rectangles to add to ggplot, assuming the dataset has the "sunrise" and "sunset" and "timestamp" columns.
 sunriseSunsetBars <- list(geom_rect(aes(xmin = min(timestamp),
-                xmax = min(sunrise),
-                ymin = -Inf,
-                ymax = Inf), alpha = 0.003),
-                geom_rect(aes(xmin = max(sunset),
-                xmax = max(timestamp),
-                ymin = -Inf,
-                ymax = Inf), alpha = 0.003))
+                                        xmax = min(sunrise),
+                                        ymin = -Inf,
+                                        ymax = Inf), alpha = 0.003),
+                          geom_rect(aes(xmin = max(sunset),
+                                        xmax = max(timestamp),
+                                        ymin = -Inf,
+                                        ymax = Inf), alpha = 0.003))
 
 randomDay <- sample(1:length(trackDaysSF), size = 1)
 
@@ -281,7 +283,7 @@ trackForRST <- trackSF %>%
   dplyr::select(trackId, timestamp)
 crsMeters <- 32636 # UTM projection to use, for Israel
 trackForRST_converted <- trackForRST %>%
-    sf::st_transform(crsMeters)
+  sf::st_transform(crsMeters)
 trackForRST_converted <- trackForRST_converted %>%
   cbind(., sf::st_coordinates(.)) %>%
   sf::st_drop_geometry()
@@ -383,16 +385,16 @@ all_tracks <- all_tracks %>%
 
 # This function plots the track contours, color-coded by both residence time and distance:
 for (i in 1:length(radius)) {
-	quartz()
-	#windows()#for Windows users
-	plotTrackContour(all_tracks, radius[i], threshold[i])
+  quartz()
+  #windows()#for Windows users
+  plotTrackContour(all_tracks, radius[i], threshold[i])
 }
 
 # This function plots the residual values and the track contour, color-coded by sign of residual:
 for (i in 1:length(radius)) {
-	quartz()
-	#windows()#for Windows users
-	plotTrackRes(all_tracks, radius[i], threshold[i], time_units)
+  quartz()
+  #windows()#for Windows users
+  plotTrackRes(all_tracks, radius[i], threshold[i], time_units)
 }
 ```
 Okay, this is promising. But I'm going to move away from it now and start looking at specific feeding events.
@@ -416,4 +418,132 @@ nrow(feedEvents)
 head(feedEvents)
 table(feedEvents$area)
 ```
-Okay, now that we have that data, we critically need access to the feeding station data.
+
+Okay, now that we have that data, we critically need access to the feeding station data so that we can match these carcass drops to lat/long.
+
+```{r}
+feedingStations <- read.csv("data/feeding_station_south_coordinates.xlsx - Sheet1.csv")
+head(feedingStations)
+
+# Are we going to be able to join these by name? I am not optimistic...
+feedEvents$feeding_station %in% feedingStations$Feeding_station # awesome!!! oh my gosh.
+
+# okay, let's join the coordinates
+feedEvents <- feedEvents %>%
+  left_join(feedingStations %>%
+              dplyr::select(Feeding_station, lat, long),
+            by = c("feeding_station" = "Feeding_station")) %>%
+  mutate(lat = as.numeric(lat),
+         long = as.numeric(long))
+head(feedEvents)
+
+
+# Remove any missing values. Later, will need to ask Gideon why these coordinates are missing, and see what we can do about it. But for now, this is just a proof of concept.
+feedEvents <- feedEvents %>%
+  filter(!is.na(lat) & !is.na(long))
+
+# Now make it an sf object
+feedEvents <- feedEvents %>%
+  sf::st_as_sf(., coords = c("long", "lat"), remove = FALSE) %>%
+  dplyr::select(-c(death_of_carcass_known, hours_since_death, origin_carcass, ranger, remarks))
+```
+
+Do some preliminary plotting
+
+```{r}
+mask <- suppressMessages(sf::st_read("data/CutOffRegion.kml"))
+datMasked <- vultureUtils::maskData(dataset = dat, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
+# Get bounding box
+lon <- range(datMasked$location_long)
+lat <- range(datMasked$location_lat)
+
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 7, maptype = "terrain-background")
+map
+
+test <- datMasked[1:100,] %>%
+  sf::st_set_crs("WGS84")
+
+# Get one individual
+test <- datMasked %>%
+  filter(trackId == "T61w")
+
+# Get bounding box for this indiv
+lon <- range(test$location_long)
+lat <- range(test$location_lat)
+
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+
+# Make the map
+ggmap(map)+
+  geom_point(data = test, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = test, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+
+# Let's now do this separately for different years
+unique(lubridate::year(test$dateOnly))
+
+t20 <- test %>%
+  filter(lubridate::year(dateOnly) == 2020)
+t21 <- test %>%
+  filter(lubridate::year(dateOnly) == 2021)
+t22 <- test %>%
+  filter(lubridate::year(dateOnly) == 2022)
+
+lon <- range(t20$location_long)
+lat <- range(t20$location_lat)
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = t20, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = t20, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+
+lon <- range(t21$location_long)
+lat <- range(t21$location_lat)
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = t21, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = t21, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+
+lon <- range(t22$location_long)
+lat <- range(t22$location_lat)
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = t22, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = t22, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+```
+
+Okay, now that I know how to plot points and I know when and where the feeding events have occurred, time to plot points around each feeding station, color-coded by individual, around the time of the feeding events.
+
+```{r warning=F}
+head(feedEvents)
+# plot just the feeding events
+feedEvents %>%
+  ggplot(aes(x = long, y = lat, col = as.numeric(datetime)))+
+  geom_point(size = 2)+
+  scale_color_viridis_c()
+
+# Let's pick the most recent feeding event to test with
+event <- feedEvents %>%
+  slice(1)
+
+# Filter the data to just get the data 2 hours before up to 24 hours later than the feeding time.
+thisEvent <- datMasked %>%
+  filter(timestamp > event$datetime[1] - lubridate::as.duration("2 hours") & timestamp < event$datetime[1] + lubridate::as.duration("200 hours"))
+nrow(thisEvent) # 925 points
+length(unique(thisEvent$trackId)) # 26 individuals
+# I have not yet restricted this spatially.
+
+bbox <- bboxFromRad(lon = event$long, lat = event$lat, kmDist = 3)
+map <- ggmap::get_stamenmap(bbox = bbox, zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = thisEvent, aes(x = location_long.1, y = location_lat.1, col = trackId), size = 1)+
+  #geom_path(data = thisEvent, aes(x = location_long.1, y = location_lat.1, col = trackId), size = 0.5)+
+  geom_point(data = event, aes(x = long, y = lat), col = "black", size = 3)+
+  scale_color_viridis_d()+
+  theme(legend.position = "none")
+```
+
+
+
