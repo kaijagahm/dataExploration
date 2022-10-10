@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(move)
 library(vultureUtils)
 library(tidyverse)
+library(feather) # for lightweight data storage
 ```
 
 # Download initial data--2020 through present
@@ -22,8 +23,8 @@ MB.LoginObject <- movebankLogin(username = 'kaijagahm', password = pw)
 rm(pw)
 
 #dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T, dateTimeStartUTC = "2020-01-01 00:00", dateTimeEndUTC = "2022-10-10 00:00")
-#save(dat, file = "data/dat.Rda")
-base::load("data/dat.Rda")
+write_feather(dat, "data/dat.feather")
+dat <- read_feather("data/dat.feather")
 ```
 
 Visualization: presence of vultures in the dataset over time.
@@ -146,7 +147,7 @@ datAnnot %>%
 
 Save the annotated dataset:
 ```{r}
-save(datAnnot, file = "data/datAnnot.Rda")
+write_feather(datAnnot, "data/datAnnot.feather")
 ```
 
 
