@@ -1,6 +1,21 @@
+---
+title: "dataPrep.Rmd"
+author: "Kaija Gahm"
+date: "2022-10-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
 library(move)
 library(vultureUtils)
+```
+
 # Download some data from 2020-present to mess around with
+```{r}
 base::load("movebankCredentials/pw.Rda")
 MB.LoginObject <- movebankLogin(username = 'kaijagahm', password = pw)
 rm(pw)
@@ -8,3 +23,4 @@ rm(pw)
 dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T)
 save(dat, file = "data/dat.Rda")
 #base::load("data/dat.Rda")
+```{r}
