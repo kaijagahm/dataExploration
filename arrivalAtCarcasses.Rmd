@@ -167,8 +167,8 @@ feedEvents <- feedEvents %>%
   dplyr::select(-Timestamp)
 
 # Subset to only include feeding events that occurred within the time range of this dataset
-min <- min(dat$timestamp)
-max <- max(dat$timestamp)
+min <- min(datAnnot$timestamp)
+max <- max(datAnnot$timestamp)
 feedEvents <- feedEvents %>%
   filter(datetime >= min & datetime <= max)
 nrow(feedEvents)
@@ -212,7 +212,7 @@ feedEvents <- feedEvents %>%
 
 ```{r}
 mask <- suppressMessages(sf::st_read("data/CutOffRegion.kml"))
-datMasked <- vultureUtils::maskData(dataset = dat, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
+datMasked <- vultureUtils::maskData(dataset = datAnnot, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
 # Get bounding box
 lon <- range(datMasked$location_long)
 lat <- range(datMasked$location_lat)
@@ -237,40 +237,6 @@ map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10,
 ggmap(map)+
   geom_point(data = test, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
   geom_path(data = test, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
-  scale_color_viridis_c()
-
-# Let's now do this separately for different years
-unique(lubridate::year(test$dateOnly))
-
-t20 <- test %>%
-  filter(lubridate::year(dateOnly) == 2020)
-t21 <- test %>%
-  filter(lubridate::year(dateOnly) == 2021)
-t22 <- test %>%
-  filter(lubridate::year(dateOnly) == 2022)
-
-lon <- range(t20$location_long)
-lat <- range(t20$location_lat)
-map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
-ggmap(map)+
-  geom_point(data = t20, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
-  geom_path(data = t20, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
-  scale_color_viridis_c()
-
-lon <- range(t21$location_long)
-lat <- range(t21$location_lat)
-map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
-ggmap(map)+
-  geom_point(data = t21, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
-  geom_path(data = t21, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
-  scale_color_viridis_c()
-
-lon <- range(t22$location_long)
-lat <- range(t22$location_lat)
-map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
-ggmap(map)+
-  geom_point(data = t22, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
-  geom_path(data = t22, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
   scale_color_viridis_c()
 ```
 
@@ -580,7 +546,39 @@ plots <- lapply(eventSumms, function(x){
 })
 ```
 
-
 ### for each carcass, # visits each hour.
+
+```{r}
+# Let's look at visits that are separated by at least one non-visit.
+visitsPerHour <- allCarcasses %>%
+  dplyr::select(eventID, timeSinceCarcassPlaced, trackId, visit) %>%
+  group_by(eventID, trackId) %>%
+  arrange(timeSinceCarcassPlaced, .by_group = TRUE) %>%
+  mutate(previous = lag(visit)) %>%
+  mutate(visitAfterNonVisit = case_when(visit == TRUE & previous == FALSE ~ TRUE,
+                                        TRUE ~ FALSE)) %>%
+  filter(visitAfterNonVisit == TRUE) %>%
+  dplyr::select(-c(previous, visit)) %>%
+  ungroup() %>%
+  mutate(hours = as.numeric(timeSinceCarcassPlaced)%%60) %>%
+  group_by(eventID, hours) %>%
+  summarize(nVisits = n())
+
+visitsPerHour %>%
+  ggplot(aes(x = hours, y = nVisits, group = eventID, col = factor(eventID)))+
+  geom_line()+
+  theme_classic()+
+  theme(legend.position = "none")
+```
+
 - this may help us determine depletion.
+
+- Aaand it did not. This is really not the pattern I was expecting to see... Still need to get a sense for carcass depletion.
+
 ### For each vulture, number of visits to the carcass (until its depletion) (within a certain window)
+
+### Let's try mapping the feeding events onto the time series directly.
+Hmm, but what does that even mean...
+
+
+
