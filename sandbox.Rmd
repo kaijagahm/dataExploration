@@ -2,7 +2,9 @@
 title: "Sandbox"
 author: "Kaija Gahm"
 date: "2022-10-04"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -12,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(vultureUtils)
-library(move)
 library(igraph)
 library(elevatr) # for getting elevation data
 library(suncalc) # for calculating sunrise and sunset
@@ -25,20 +26,10 @@ library(tidyverse)
 library(sf)
 ```
 
-Download some data from 2020-present to mess around with
-```{r}
-base::load("movebankCredentials/pw.Rda")
-MB.LoginObject <- movebankLogin(username = 'kaijagahm', password = pw)
-rm(pw)
-
-#dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T)
-#save(dat, file = "data/dat.Rda")
-base::load("data/dat.Rda")
-```
-
 Let's look at the presence of the vultures over time.
 
 ```{r}
+load("data/dat.Rda")
 unique(dat$trackId)
 dates <- dat %>%
   dplyr::select(trackId, dateOnly) %>%
@@ -280,7 +271,7 @@ I think it would be interesting to try this RST model (residence in space and ti
 
 Going to just try it with this one individual, 
 
-```{r}
+```{r eval = FALSE}
 # Prepare the data by converting it from lat/long to UTM.
 trackForRST <- trackSF %>%
   dplyr::select(trackId, timestamp)
@@ -298,7 +289,7 @@ dataset <- dataset %>%
 
 Calculate residence values:
 
-```{r}
+```{r eval = FALSE}
 # --------------------- CALCULATING RESIDENCE VALUES --------------------- #
 # create a time array: duration of trip in given time units
 time_units = "secs" # one of "secs", "mins", "hours", "days", "weeks"
@@ -338,7 +329,7 @@ saveRDS(MoveResid,file = ("data/T61w_allscales.rda"))
 #MoveResid<-readRDS("data/T61w_allscales.rda")
 ```
 
-```{r}
+```{r eval = FALSE}
 # --------------------- PLOTTING SCALE OF RESIDUALS & CHOOSING BEST ONE--------------------- #
 pdf("data/T61w_MultiScale.pdf")
 scales<-plotMultiScale1(all_tracks, radius, xmax = max(radius))
@@ -366,7 +357,7 @@ What happens if we just try using that radius?
 
 Calculate residence values:
 
-```{r}
+```{r eval = FALSE}
 radius <- 2.9
 all_tracks = data.frame()
 threshold <- 0
@@ -380,7 +371,7 @@ for (i in 1:length(bandIDs)) {
 }
 ```
 
-```{r}
+```{r eval = FALSE}
 # --------------------- PLOTTING TRACKS AND RESIDUALS --------------------- #
 # The plotting functions below take the dataset with residence values and and a string naming the residual. To look at the full dataset, type "track = all_tracks". To "zoom in" on a section of the track, pass in the specific indeces.
 all_tracks <- all_tracks %>%
@@ -819,7 +810,6 @@ plots <- lapply(eventSumms, function(x){
   theme_classic()
   return(p)
 })
-
 ```
 
 
