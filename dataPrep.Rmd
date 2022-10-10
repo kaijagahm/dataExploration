@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(move)
 library(vultureUtils)
+library(tidyverse)
 ```
 
 # Download initial data--2020 through present
@@ -20,14 +21,14 @@ base::load("movebankCredentials/pw.Rda")
 MB.LoginObject <- movebankLogin(username = 'kaijagahm', password = pw)
 rm(pw)
 
-dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T)
-save(dat, file = "data/dat.Rda")
+#dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T, dateTimeStartUTC = "2020-01-01 00:00", dateTimeEndUTC = "2022-10-10 00:00")
+#save(dat, file = "data/dat.Rda")
 base::load("data/dat.Rda")
 ```
 
+Visualization: presence of vultures in the dataset over time.
 ```{r eval = FALSE}
 # Let's look at the presence of the vultures over time.
-load("data/dat.Rda")
 unique(dat$trackId)
 dates <- dat %>%
   dplyr::select(trackId, dateOnly) %>%
@@ -41,18 +42,15 @@ dates %>%
 
 Now I'd like to annotate this data with periods to remove
 ```{r}
-toRemove <- read.csv("data/whoswho_vultures11Jul22_new.xlsx - periods_to_remove.csv") %>%
-  mutate(across(everything(), .fns = function(x){str_replace_all(x, pattern = "\t", replacement = "")}))
+toRemove <- read.csv("data/whoswho_vultures04oct22_new.xlsx - periods_to_remove.csv")
 head(toRemove)
 toRemove <- toRemove %>%
   dplyr::select("trackId" = Movebank_id,
                 remove_start,
                 remove_end,
                 reason) %>%
-  mutate(remove_start = stringr::str_remove(remove_start, pattern = ".*day, "),
-         remove_end = stringr::str_remove(remove_end, pattern = ".*day, ")) %>%
   mutate(across(c(remove_start, remove_end), .fns = function(x){
-    as.Date(lubridate::parse_date_time2(x, orders = c("%B%d%Y", "%Y%m%d")))
+    lubridate::dmy(x)
   })) %>%
   dplyr::filter(!is.na(remove_end))
 
@@ -71,7 +69,10 @@ toRemove_long <- toRemove %>%
 datAnnot <- dat %>%
   left_join(toRemove_long, by = c("trackId", "dateOnly")) %>%
   mutate(status = replace_na(status, "valid"))
+```
 
+Visualize: presence over time, coloring by vulture status (i.e. whether or not to remove the data)
+```{r eval = FALSE}
 # Plot, coloring by the vulture status
 datAnnot %>%
   dplyr::select(trackId, dateOnly, status) %>%
@@ -90,7 +91,10 @@ datAnnot %>%
   ggplot(aes(x = trackId, y = dateOnly))+
   geom_point(size = 0.2)+
   coord_flip()
+```
 
+Compute metrics for each vulture's presence in the data.
+```{r}
 # Now we can sort by a couple different things
 ## Compute start date, end date, and longest consecutive run.
 metrics <- datAnnot %>%
@@ -139,5 +143,11 @@ datAnnot %>%
   geom_point(size = 0.2)+
   coord_flip()
 ```
+
+Save the annotated dataset:
+```{r}
+save(datAnnot, file = "data/datAnnot.Rda")
+```
+
 
 
