@@ -566,6 +566,18 @@
       "Hash": "77bd60a6157420d4ffa93b27cf6a58b8",
       "Requirements": []
     },
+    "feather": {
+      "Package": "feather",
+      "Version": "0.3.5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "76de23891bdba419517e855ed611ad29",
+      "Requirements": [
+        "Rcpp",
+        "hms",
+        "tibble"
+      ]
+    },
     "filehash": {
       "Package": "filehash",
       "Version": "2.4-3",
