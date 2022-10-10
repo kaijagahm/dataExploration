@@ -1,0 +1,164 @@
+---
+title: "RST"
+author: "Kaija Gahm"
+date: "2022-10-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+source("RST_functions_all.R")
+dyn.load("RST_residenceRadii.so")
+load("data/datAnnot.Rda")
+```
+
+## RST (RESIDENCE IN SPACE AND TIME)
+
+I think it would be interesting to try this RST model (residence in space and time), described here: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0168513#pone.0168513.ref019. This would be useful for classifying vulture "behavioral states," i.e. intensive searching, feeding, etc. I am not sure how well it will work, but I'm going to give it a shot with one individual's movement track. The code for the method is here: https://github.com/raorben/RST
+
+Going to just try it with this one individual, 
+
+```{r}
+targetIndiv <- datAnnot %>%
+  dplyr::select(trackId, longestRun) %>%
+  distinct() %>%
+  arrange(-longestRun) %>%
+  slice(1) %>%
+  pull(trackId)
+
+track <- datAnnot %>%
+  filter(trackId == targetIndiv)
+
+trackSF <- track %>%
+  sf::st_as_sf(., coords = c("location_long", "location_lat"), crs = "WGS84")
+```
+
+
+```{r eval = FALSE}
+# Prepare the data by converting it from lat/long to UTM.
+trackForRST <- trackSF %>%
+  dplyr::select(trackId, timestamp)
+crsMeters <- 32636 # UTM projection to use, for Israel
+trackForRST_converted <- trackForRST %>%
+  sf::st_transform(crsMeters)
+trackForRST_converted <- trackForRST_converted %>%
+  cbind(., sf::st_coordinates(.)) %>%
+  sf::st_drop_geometry()
+dataset <- trackForRST_converted
+dataset <- dataset %>%
+  rename("datetime" = timestamp,
+         "band" = trackId)
+```
+
+Calculate residence values:
+
+```{r eval = FALSE}
+# --------------------- CALCULATING RESIDENCE VALUES --------------------- #
+# create a time array: duration of trip in given time units
+time_units = "secs" # one of "secs", "mins", "hours", "days", "weeks"
+
+# set the desired radius (km) and threshold values
+# make sure this is in sequential order with no duplicate values
+# radius should be chosen around the expected movement scale. Its is also helpful to increase the resolution of radii increments
+# near where the proportion of transit points falls below 0.05. You will probably need to run this a couple of times to refine.
+radius = c(seq(50, 200, by = 1))
+threshold <- rep(0, length(radius))
+
+# determine the different individuals
+bandIDs <- unique(dataset$band) # XXX only have one individual here.
+
+# for each track, calculate residence values
+# If a track never leaves the chosen radius this will result in NAs for residence time, distance and residuals and an associated warning.
+
+# For residence and residual calculations, NA are assigned to 
+# (1) locations at the beginning of tracks until the animal moves beyond R from the initial point, 
+# and (2) to those locations at the end that are all within R of the last radius built.
+
+all_tracks = data.frame()
+threshold <- 0
+for (i in 1:length(bandIDs)) {
+  subdata = dataset[dataset$band == bandIDs[i], ]
+  
+  subdata$time_diff = as.numeric(subdata$datetime - subdata$datetime[1], units = time_units) # calculates the time difference from this point to the beginning point.
+  result <- residenceCalc(subdata$X, subdata$Y, subdata$time_diff, radius, threshold)
+  subdata = cbind(subdata, result)
+  all_tracks = rbind(all_tracks, subdata)
+}
+
+
+# Save results of all scales
+MoveResid<-list(all_tracks, radius, threshold, time_units, bandIDs)
+saveRDS(MoveResid,file = ("data/T61w_allscales.rda"))
+#MoveResid<-readRDS("data/T61w_allscales.rda")
+```
+
+
+```{r eval = FALSE}
+# --------------------- PLOTTING SCALE OF RESIDUALS & CHOOSING BEST ONE--------------------- #
+pdf("data/T61w_MultiScale.pdf")
+scales<-plotMultiScale1(all_tracks, radius, xmax = max(radius))
+dev.off()
+
+#for multiple tracks
+#pdf("MultiScale.pdf")
+#scalesum<-plotMultiScale(all_tracks, radius) 
+#dev.off()
+
+#if you don't choose radi large enough for the % transit points to be <0.05 then chooseDynScale will return an error
+dynscale <- chooseDynScale(scales, radius) #animal/track ids must be numeric
+write.csv(x = dynscale,file = "data/DynScaleResults.csv")
+```
+Even with enormous radius values, we are still not getting a value for scaling. It's possible this just won't work. Alternatively, I can go back to the paper and see if they explain what to do when this method fails.
+Aaaand the paper does not say what to do if this value isn't obtainable. Consider either reaching out to them, or trying to figure out a priori what a reasonable transit speed value is for the vultures.
+
+
+Well, Ruppell's Griffon Vulture has an average cruising speed of 22mph. 
+https://blogs.bu.edu/bioaerial2012/2012/09/26/the-ruppells-griffon-vulture-the-highest-recorded-flying-bird/#:~:text=This%20vulture%20has%20an%20average,oxygen%20intake%20much%20more%20effective.
+If we use 20mph for the griffon vulture transit speed, that's about 35 kph.
+
+R = (35kph*0.166hours)/2 = radius of 2.9 km.
+
+What happens if we just try using that radius?
+
+Calculate residence values:
+
+```{r eval = FALSE}
+radius <- 2.9
+all_tracks = data.frame()
+threshold <- 0
+for (i in 1:length(bandIDs)) {
+  subdata = dataset[dataset$band == bandIDs[i], ]
+  
+  subdata$time_diff = as.numeric(subdata$datetime - subdata$datetime[1], units = time_units) # calculates the time difference from this point to the beginning point.
+  result <- residenceCalc(subdata$X, subdata$Y, subdata$time_diff, radius, threshold)
+  subdata = cbind(subdata, result)
+  all_tracks = rbind(all_tracks, subdata)
+}
+```
+
+```{r eval = FALSE}
+# --------------------- PLOTTING TRACKS AND RESIDUALS --------------------- #
+# The plotting functions below take the dataset with residence values and and a string naming the residual. To look at the full dataset, type "track = all_tracks". To "zoom in" on a section of the track, pass in the specific indeces.
+all_tracks <- all_tracks %>%
+  rename("lon" = X, "lat" = Y)
+
+# This function plots the track contours, color-coded by both residence time and distance:
+for (i in 1:length(radius)) {
+  quartz()
+  #windows()#for Windows users
+  plotTrackContour(all_tracks, radius[i], threshold[i])
+}
+
+# This function plots the residual values and the track contour, color-coded by sign of residual:
+for (i in 1:length(radius)) {
+  quartz()
+  #windows()#for Windows users
+  plotTrackRes(all_tracks, radius[i], threshold[i], time_units)
+}
+```
+Okay, this is promising. But I'm going to move away from it now and start looking at specific feeding events.

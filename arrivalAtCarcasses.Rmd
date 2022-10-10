@@ -1,0 +1,586 @@
+---
+title: "Arrival At Carcasses"
+author: "Kaija Gahm"
+date: "2022-10-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(vultureUtils)
+library(igraph)
+library(elevatr) # for getting elevation data
+library(suncalc) # for calculating sunrise and sunset
+library(ggmap)
+source("bboxFromRad.R")
+library(units)
+library(tidyverse)
+library(sf)
+```
+
+```{r}
+datAnnot <- feather::read_feather("data/datAnnot.feather")
+```
+
+# Analyzing arrival order at carcasses
+
+## IDENTIFY FEEDING EVENTS
+Let's move on to examining an individual's movement patterns to identify arrival at a carcass site.
+Going to pick the individual with the longest run:
+```{r}
+targetIndiv <- datAnnot %>%
+  dplyr::select(trackId, longestRun) %>%
+  distinct() %>%
+  arrange(-longestRun) %>%
+  slice(1) %>%
+  pull(trackId)
+
+track <- datAnnot %>%
+  filter(trackId == targetIndiv)
+
+trackDays <- track %>%
+  group_by(dateOnly) %>%
+  group_split(.keep = TRUE)
+```
+
+### Acceleration
+Visualize acceleration
+```{r}
+acc <- track %>%
+  dplyr::select(dateOnly, timestamp, contains("acceleration_")) %>%
+  pivot_longer(cols = contains("acceleration_"), names_to = "axis", values_to = "acceleration") %>%
+  mutate(axis = str_remove(axis, "acceleration_raw_"))
+
+acc %>%
+  ggplot(aes(x = timestamp, y = acceleration, col = axis))+
+  geom_line()
+```
+Okay, that's not very informative, as expected. Let's split this by day and just look at one day's sequence.
+
+```{r}
+accDays <- lapply(trackDays, function(x){
+  x %>% dplyr::select(dateOnly, timestamp, contains("acceleration_")) %>%
+    pivot_longer(cols = contains("acceleration_"), names_to = "axis", values_to = "acceleration") %>%
+    mutate(axis = str_remove(axis, "acceleration_raw_"))
+})
+```
+
+```{r}
+randomDay <- sample(1:length(accDays), size = 1)
+
+accDays[[randomDay]] %>%
+  ggplot(aes(x = timestamp, y = acceleration, col = axis))+
+  geom_line()
+```
+Okay, this is kind of cool. But I'm not good enough at interpreting accelerometer data to know for sure how to read this.
+
+### Speed and altitude
+What about speed and altitude? Can the combination of those tell us what we need to know?
+```{r}
+randomDay <- sample(1:length(accDays), size = 1)
+speed <- trackDays[[randomDay]] %>%
+  ggplot(aes(x = timestamp, y = ground_speed))+
+  geom_line()
+speed
+
+altitude <- trackDays[[randomDay]] %>%
+  ggplot(aes(x = timestamp, y = height_above_msl))+
+  geom_line()
+altitude
+```
+
+### Relative altitude
+In order for this to make any sense at all, we need to cross-reference these measurements with elevation data for Israel. We can obtain this using the `elevatr` package.
+
+```{r}
+# Add sunrise and sunset information using suncalc
+## first let's get the mean lat and long for the current track
+meanLat <- mean(track$location_lat)
+meanLong <- mean(track$location_long)
+dates <- seq(from = min(track$dateOnly), to = max(track$dateOnly), by = "1 day")
+sunriseSunset <- suncalc::getSunlightTimes(date = dates, lat = meanLat, lon = meanLong, keep = c("sunrise", "sunset")) %>%
+  dplyr::select("dateOnly" = date, sunrise, sunset)
+track <- track %>%
+  left_join(sunriseSunset, by = "dateOnly")
+
+# Make it an sf object and add elevation
+trackSF <- track %>%
+  sf::st_as_sf(., coords = c("location_long", "location_lat"), crs = "WGS84")
+elevs <- elevatr::get_elev_raster(trackSF, z = 12) 
+trackSF$groundElev <- raster::extract(x = elevs, y = trackSF)
+trackSF <- trackSF %>%
+  mutate(height_above_ground = height_above_msl - groundElev)
+
+# let's set anything below 0 to 0.
+trackSF <- trackSF %>%
+  mutate(height_above_ground = case_when(height_above_ground < 0 ~ 0,
+                                         TRUE ~ height_above_ground))
+
+trackDaysSF <- trackSF %>%
+  group_by(dateOnly) %>%
+  group_split(.keep = TRUE)
+```
+
+#### Speed/relative altitude plots
+Now let's re-do the speed and altitude plots, using altitude above ground:
+```{r}
+# create rectangles to add to ggplot, assuming the dataset has the "sunrise" and "sunset" and "timestamp" columns.
+sunriseSunsetBars <- list(geom_rect(aes(xmin = min(timestamp),
+                                        xmax = min(sunrise),
+                                        ymin = -Inf,
+                                        ymax = Inf), alpha = 0.003),
+                          geom_rect(aes(xmin = max(sunset),
+                                        xmax = max(timestamp),
+                                        ymin = -Inf,
+                                        ymax = Inf), alpha = 0.003))
+
+randomDay <- sample(1:length(trackDaysSF), size = 1)
+
+altitude <- trackDaysSF[[randomDay]] %>%
+  mutate(height_above_msl = case_when(height_above_msl < groundElev ~ groundElev,
+                                      TRUE ~ height_above_msl)) %>%
+  ggplot(aes(x = timestamp, y = height_above_msl))+
+  geom_area(aes(y = groundElev), fill = "#996633")+
+  geom_line(alpha = 0.5)+
+  geom_point(aes(col = ground_speed), size = 3)+
+  scale_color_viridis_c()+
+  ylab("Elevation (m)")+
+  xlab("Time")+
+  theme_minimal()+
+  sunriseSunsetBars
+altitude
+```
+
+## KNOWN FEEDING EVENTS
+
+### Feeding event data
+Read in the feeding event data (this is the most updated version we have; should work on getting more info from more recent feeding events.)
+```{r}
+feedEvents <- read.csv("data/feeding_station_south_data.xlsx - Sheet1.csv")
+# add datetime
+feedEvents <- feedEvents %>%
+  mutate(datetime = lubridate::mdy_hms(Timestamp)) %>%
+  dplyr::select(-Timestamp)
+
+# Subset to only include feeding events that occurred within the time range of this dataset
+min <- min(dat$timestamp)
+max <- max(dat$timestamp)
+feedEvents <- feedEvents %>%
+  filter(datetime >= min & datetime <= max)
+nrow(feedEvents)
+head(feedEvents)
+table(feedEvents$area)
+```
+
+### Feeding station locations
+Okay, now that we have that data, we critically need access to the feeding station data so that we can match these carcass drops to lat/long.
+
+```{r}
+feedingStations <- read.csv("data/feeding_station_south_coordinates.xlsx - Sheet1.csv")
+head(feedingStations)
+
+# Are we going to be able to join these by name? I am not optimistic...
+feedEvents$feeding_station %in% feedingStations$Feeding_station # awesome!!! oh my gosh.
+
+# okay, let's join the coordinates
+feedEvents <- feedEvents %>%
+  left_join(feedingStations %>%
+              dplyr::select(Feeding_station, lat, long),
+            by = c("feeding_station" = "Feeding_station")) %>%
+  mutate(lat = as.numeric(lat),
+         long = as.numeric(long))
+  
+head(feedEvents)
+
+
+# Remove any missing values. Later, will need to ask Gideon why these coordinates are missing, and see what we can do about it. But for now, this is just a proof of concept.
+feedEvents <- feedEvents %>%
+  filter(!is.na(lat) & !is.na(long))
+
+# Now make it an sf object
+feedEvents <- feedEvents %>%
+  sf::st_as_sf(., coords = c("long", "lat"), remove = FALSE) %>%
+  sf::st_set_crs("WGS84") %>%
+  dplyr::select(-c(death_of_carcass_known, hours_since_death, origin_carcass, ranger, remarks))
+```
+
+### Exploratory mapping
+
+```{r}
+mask <- suppressMessages(sf::st_read("data/CutOffRegion.kml"))
+datMasked <- vultureUtils::maskData(dataset = dat, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
+# Get bounding box
+lon <- range(datMasked$location_long)
+lat <- range(datMasked$location_lat)
+
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 7, maptype = "terrain-background")
+map
+
+test <- datMasked[1:100,] %>%
+  sf::st_set_crs("WGS84")
+
+# Get one individual
+test <- datMasked %>%
+  filter(trackId == "T61w")
+
+# Get bounding box for this indiv
+lon <- range(test$location_long)
+lat <- range(test$location_lat)
+
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+
+# Make the map
+ggmap(map)+
+  geom_point(data = test, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = test, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+
+# Let's now do this separately for different years
+unique(lubridate::year(test$dateOnly))
+
+t20 <- test %>%
+  filter(lubridate::year(dateOnly) == 2020)
+t21 <- test %>%
+  filter(lubridate::year(dateOnly) == 2021)
+t22 <- test %>%
+  filter(lubridate::year(dateOnly) == 2022)
+
+lon <- range(t20$location_long)
+lat <- range(t20$location_lat)
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = t20, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = t20, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+
+lon <- range(t21$location_long)
+lat <- range(t21$location_lat)
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = t21, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = t21, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+
+lon <- range(t22$location_long)
+lat <- range(t22$location_lat)
+map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = t22, aes(x = location_long.1, y = location_lat.1, col = ground_speed), size = 0.2)+
+  geom_path(data = t22, aes(x = location_long.1, y = location_lat.1), size = 0.02)+
+  scale_color_viridis_c()
+```
+
+Okay, now that I know how to plot points and I know when and where the feeding events have occurred, time to plot points around each feeding station, color-coded by individual, around the time of the feeding events.
+
+```{r warning=F}
+head(feedEvents)
+# plot just the feeding events
+feedEvents %>%
+  ggplot(aes(x = long, y = lat, col = as.numeric(datetime)))+
+  geom_point(size = 2)+
+  scale_color_viridis_c()
+
+# Let's pick the most recent feeding event to test with
+event <- feedEvents %>%
+  slice(1)
+
+# Filter the data to just get the data 2 hours before up to 24 hours later than the feeding time.
+thisEvent <- datMasked %>%
+  filter(timestamp > event$datetime[1] - lubridate::as.duration("2 hours") & timestamp < event$datetime[1] + lubridate::as.duration("200 hours"))
+nrow(thisEvent) # 925 points
+length(unique(thisEvent$trackId)) # 26 individuals
+# I have not yet restricted this spatially.
+
+bbox <- bboxFromRad(lon = event$long, lat = event$lat, kmDist = 3)
+map <- ggmap::get_stamenmap(bbox = bbox, zoom = 10, maptype = "terrain-background")
+ggmap(map)+
+  geom_point(data = thisEvent, aes(x = location_long.1, y = location_lat.1, col = trackId), size = 1)+
+  #geom_path(data = thisEvent, aes(x = location_long.1, y = location_lat.1, col = trackId), size = 0.5)+
+  geom_point(data = event, aes(x = long, y = lat), col = "black", size = 3)+
+  scale_color_viridis_d()+
+  theme(legend.position = "none")
+```
+
+### Distance from carcass vs. time
+
+I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it. Duh.
+
+```{r}
+# Calculate distance from carcass over time
+thisEvent <- thisEvent %>%
+  mutate(distanceFromCarcass = as.numeric(sf::st_distance(., event))/1000)
+
+# Plot distance from carcass over time
+thisEvent %>%
+  ggplot(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
+  geom_point()+
+  geom_line()+
+  geom_vline(aes(xintercept = event$datetime[1]))+
+  theme_minimal()+
+  ylim(0, 100)
+```
+
+Now I want to do this for all feeding events.
+```{r}
+# Make a list of the datasets for each feeding event, ranging from 2 hours before carcass placement through 200 hours after carcass placement. For each point in the dataset, calculate the distance from the carcass.
+eventsList <- feedEvents %>%
+  group_by(datetime) %>%
+  group_split(.keep = T)
+length(eventsList)
+
+eventsDat <- lapply(eventsList, function(x){
+  dat <- datMasked %>%
+    filter(timestamp > x$datetime[1]-lubridate::as.duration("2 hours") & timestamp < x$datetime[1] + lubridate::as.duration("100 hours")) %>%
+    mutate(timeSinceCarcassPlaced = timestamp - x$datetime[1])
+})
+
+eventsDat <- map2(.x = eventsDat, .y = eventsList, .f = function(.x, .y){
+  .x <- .x %>%
+    mutate(distanceFromCarcass = as.numeric(sf::st_distance(., .y))/1000)
+})
+
+# download elevation rasters for points within 3km of each feeding event
+eventsDat3km <- lapply(eventsDat, function(x){
+  x %>%
+    filter(distanceFromCarcass < 3)
+})
+
+elevRasters <- lapply(eventsDat3km, function(x){
+  if(nrow(x) == 0){
+    return(NULL)
+  }else{
+    elev <- elevatr::get_elev_raster(x, z = 12)
+    return(elev)
+  }
+})
+
+# add elevation information to data frames, but only for the points within 3km of the feeding site.
+eventsDat <- map2(.x = eventsDat, .y = elevRasters, .f = function(.x, .y){
+  if(is.null(.y)){
+    .x <- .x %>%
+      mutate(groundElev = NA,
+             height_above_ground = NA)
+  }else{
+    .x <- .x %>%
+      mutate(groundElev = raster::extract(.y, .x),
+             height_above_ground = height_above_msl - groundElev) %>%
+      mutate(height_above_ground = case_when(height_above_ground < 0 ~ 0,
+                                             TRUE ~ height_above_ground))
+  }
+})
+
+# Now we can use this to make the same plot for each feeding event, limiting it to a certain radius
+plots <- map2(.x = eventsDat, .y = eventsList, .f = function(.x, .y){
+  p <- .x %>%
+  ggplot(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
+  geom_point()+
+  geom_line()+
+  geom_vline(aes(xintercept = .y$datetime[1]))+
+  theme_minimal()+
+  ylim(0, 20)
+})
+plots
+```
+
+### Detections and arrivals
+
+1. Define "detection" as a vulture passing within 1km of the site, regardless of speed or altitude.
+2. Define "arrival" as being within 0.25km with a ground speed < 5m/s and an elevation < 10m
+Calculate detections and arrivals for each bird at each carcass.
+
+```{r}
+eventsDat <- lapply(eventsDat, function(x){
+  x <- x %>%
+    mutate(detection = case_when(distanceFromCarcass < 1 & 
+                                   timeSinceCarcassPlaced > 0  ~ TRUE,
+                                 TRUE ~ FALSE),
+           visit = case_when(distanceFromCarcass < 0.25 & ground_speed < 5 & 
+                               !is.na(height_above_ground) & height_above_ground < 10 &
+                               timeSinceCarcassPlaced > 0 ~ 
+                               TRUE,
+                             TRUE ~ FALSE))
+})
+```
+
+### Latency
+```{r}
+allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
+  as.data.frame() %>%
+  dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, geometry, timeSinceCarcassPlaced, distanceFromCarcass, groundElev, height_above_ground, detection, visit)
+```
+
+#### Time to first detection
+Let's assume that all carcasses will be detected within 10 days = 240 hours = 14400 minutes. So we'll filter the data down to that.
+```{r}
+firstDetections <- allCarcasses %>%
+  filter(timeSinceCarcassPlaced > 0 & timeSinceCarcassPlaced < 14400, detection == TRUE) %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = TRUE) %>%
+  slice(1)
+glimpse(firstDetections)
+
+firstDetections %>%
+  ggplot(aes(x = as.numeric(timeSinceCarcassPlaced)/60))+
+  geom_density(fill = "lightblue", col = "lightblue")+
+  geom_vline(aes(xintercept = 24), col = "darkblue", alpha = 0.7)+
+  geom_vline(aes(xintercept = 48), col = "darkblue", alpha = 0.5)+
+  geom_vline(aes(xintercept = 72), col = "darkblue", alpha = 0.3)+
+  geom_vline(aes(xintercept = 96), col = "darkblue", alpha = 0.1)+
+  theme_classic()+
+  ylab("Frequency")+
+  xlab("Time to first detection (hours)")
+```
+
+#### Time to first visit
+```{r}
+firstVisits <- allCarcasses %>%
+  filter(timeSinceCarcassPlaced > 0 & timeSinceCarcassPlaced < 14400, visit == TRUE) %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = TRUE) %>%
+  slice(1)
+glimpse(firstVisits)
+
+firstVisits %>%
+  ggplot(aes(x = as.numeric(timeSinceCarcassPlaced)/60))+
+  geom_density(fill = "#FCA18E", col = "#FCA18E")+
+  geom_vline(aes(xintercept = 24), col = "darkred", alpha = 0.7)+
+  geom_vline(aes(xintercept = 48), col = "darkred", alpha = 0.5)+
+  geom_vline(aes(xintercept = 72), col = "darkred", alpha = 0.3)+
+  geom_vline(aes(xintercept = 96), col = "darkred", alpha = 0.1)+
+  theme_classic()+
+  ylab("Frequency")+
+  xlab("Time to first visit (hours)")
+```
+This looks very similar to the first detection graph.
+Let's plot them against each other:
+
+#### Detection vs. visit latency
+```{r}
+df <- firstDetections %>%
+  mutate(type = "detection") %>%
+  bind_rows(firstVisits %>%
+              mutate(type = "visit")) %>%
+  dplyr::select(eventID, timeSinceCarcassPlaced, type) %>%
+  pivot_wider(id_cols = eventID, values_from = timeSinceCarcassPlaced, names_from = type) %>%
+  mutate(visitLag = visit-detection)
+
+df %>%
+  filter(detection < 7500) %>%
+  filter(!is.na(detection) & !is.na(visit)) %>%
+  ggplot(aes(x = detection, y = visit))+
+  geom_point(size = 2)+
+  theme_classic()+
+  geom_smooth(method = "lm") # ok this is not intuitive... would think there would be a very straightforward relationship between first detection and first visit.
+
+# Oh no, wait, is detection always earlier than visit?
+df$visit >= df$detection # always greater than or equal, by definition (because a visit also counts as a detection).
+df$visit == df$detection # there are some where the first detection is the same as the first visit.
+summary(as.numeric(df$visitLag)) # yeah, several of the visitLags are 0, which is another way of saying the same thing.
+
+# Do later-detected carcasses take longer to be visited after detection?
+head(df)
+df %>%
+  filter(detection < 7500) %>%
+  filter(!is.na(detection) & !is.na(visitLag)) %>%
+  ggplot(aes(x = detection, y = visitLag))+
+  geom_point()+
+  theme_classic()+
+  geom_smooth(method = "lm")+ # no relationship.
+# But what if we remove the ones where visitLag is 0?
+  geom_smooth(data = df %>%
+                filter(detection < 7500, !is.na(detection), !is.na(visitLag), visitLag > 0),
+              aes(x = detection, y = visitLag), method = "lm", col = "red")
+# Still no significant relationship. Need to repeat this analysis with more carcass data.
+```
+
+### First visit times for each bird at each carcass
+
+Group by carcass and individual to get each bird's first visit
+```{r}
+df <- allCarcasses %>%
+  group_by(eventID, trackId) %>%
+  filter(visit == TRUE) %>%
+  arrange(timestamp, .by_group = TRUE) %>%
+  slice(1) 
+  
+head(df)
+
+df <- df %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = T) %>%
+  mutate(nFirstVisits = 1:n())
+
+# Make some curves
+df %>%
+  ggplot(aes(x = as.numeric(timeSinceCarcassPlaced)/60, y = nFirstVisits, col = as.factor(eventID)))+       geom_line()+
+  theme_classic()+
+  theme(legend.position = "none")+
+  ylab("Number of unique vultures that have visited")+
+  xlab("Time since carcass placement (hours)")
+
+# Aha, this isn't informative because it includes a bunch of days.
+# We need the time extent to be really long because it needs to allow for a long period of time between placement and first detection. But that's not actually the x axis. Need to be plotting time since first overall visit detection vs. # of vultures that have made first visits.
+head(df)
+
+df <- df %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = TRUE) %>%
+  mutate(timeSinceFirstVisit = timestamp-timestamp[1])
+
+df %>%
+  filter(as.numeric(timeSinceFirstVisit)/3600 < 48) %>%
+  ggplot(aes(x = as.numeric(timeSinceFirstVisit)/3600, y = nFirstVisits, col = as.factor(eventID)))+       geom_line()+
+  theme_classic()+
+  theme(legend.position = "none")+
+  ylab("Number of unique vultures that have visited")+
+  xlab("Time since the first vulture first visited (hours)")
+```
+Really really need information about the following:
+1. How long does a carcass stick around once it's placed?
+2. How often are new carcasses deposited at the same feeding site? (I can actually get this information myself, by analyzing the data differently, i.e. overlaying the carcass placements with the entire time series instead of subsetting the data separately for each carcass.)
+
+### Over time, # vultures within each distance band (0-1, 0-5, 0-10) etc. colored by band
+
+```{r}
+allCarcasses <- allCarcasses %>%
+  filter(timeSinceCarcassPlaced > 0) %>%
+  mutate(hour = lubridate::floor_date(timestamp, unit = "hour")) %>%
+  mutate(under1 = distanceFromCarcass < 1,
+         under5 = distanceFromCarcass < 5,
+         under10 = distanceFromCarcass < 10,
+         under50 = distanceFromCarcass < 50,
+         under100 = distanceFromCarcass < 100,
+         over100 = distanceFromCarcass > 100)
+
+summ <- allCarcasses %>%
+  dplyr::select(eventID, trackId, hour, under1, under5, under10, under50, under100, over100) %>%
+  distinct() %>%
+  pivot_longer(cols = -c("eventID", "trackId", "hour"), names_to = "thresh", values_to = "val") %>%
+  filter(val == TRUE) %>%
+  dplyr::select(-val) %>%
+  group_by(eventID, hour, thresh) %>%
+  summarize(n = n())
+
+eventSumms <- summ %>%
+  ungroup() %>%
+  group_by(eventID) %>%
+  group_split(.keep = T)
+plots <- lapply(eventSumms, function(x){
+  p <- x %>%
+  mutate(thresh = factor(thresh, levels = c("under1", "under5", "under10", "under50", "under100", "over100"))) %>%
+  ggplot(aes(x = hour, y = n, col = thresh))+
+  geom_point()+
+  geom_line()+
+  theme_classic()
+  return(p)
+})
+```
+
+
+### for each carcass, # visits each hour.
+- this may help us determine depletion.
+### For each vulture, number of visits to the carcass (until its depletion) (within a certain window)
