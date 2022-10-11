@@ -159,6 +159,29 @@ altitude
 
 ### Feeding event data
 Read in the feeding event data (this is the most updated version we have; should work on getting more info from more recent feeding events.)
+
+#### Sunrise/sunset, day/night to datAnnot
+```{r}
+# using the mean values of lat and long for this dataset, which may not be perfect but it's fairly decent.
+meanLat <- mean(datAnnot$location_lat)
+meanLong <- mean(datAnnot$location_long)
+
+# Add sunrise/sunset information for each day, and use it to calculate whether each point takes place during day or night.
+sunriseSunset <- suncalc::getSunlightTimes(date = unique(datAnnot$dateOnly), lat = meanLat, lon = meanLong, keep = c("sunrise", "sunset")) %>%
+  dplyr::select("dateOnly" = date, sunrise, sunset)
+
+sunsetSunrise <- sunriseSunset %>%
+  dplyr::select(sunset, sunrise) %>%
+  mutate(sunrise = lead(sunrise))
+
+datAnnot <- datAnnot %>%
+  left_join(sunriseSunset, by = "dateOnly") %>%
+  mutate(dayNight = case_when(timestamp >= sunrise & timestamp <= sunset ~ "day",
+                              TRUE ~ "night")) %>%
+  dplyr::select(-c("sunrise", "sunset")) %>%
+  mutate(dayNight = factor(dayNight))
+```
+
 ```{r}
 feedEvents <- read.csv("data/feeding_station_south_data.xlsx - Sheet1.csv")
 # add datetime
@@ -254,11 +277,12 @@ feedEvents %>%
 event <- feedEvents %>%
   slice(1)
 
-# Filter the data to just get the data 2 hours before up to 24 hours later than the feeding time.
+# In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass.
+# Filter the data to just get the data 2 hours before up to 24*4 = 96 hours later than the feeding time.
+maxTimeWords <- "96 hours"
+maxTime <- "96"
 thisEvent <- datMasked %>%
-  filter(timestamp > event$datetime[1] - lubridate::as.duration("2 hours") & timestamp < event$datetime[1] + lubridate::as.duration("200 hours"))
-nrow(thisEvent) # 925 points
-length(unique(thisEvent$trackId)) # 26 individuals
+  filter(timestamp > event$datetime[5] - lubridate::as.duration("2 hours") & timestamp < event$datetime[5] + lubridate::as.duration(maxTimeWords))
 # I have not yet restricted this spatially.
 
 bbox <- bboxFromRad(lon = event$long, lat = event$lat, kmDist = 3)
@@ -273,25 +297,12 @@ ggmap(map)+
 
 ### Distance from carcass vs. time
 
+In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass. So that's 96 hours.
+
 I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it. Duh.
 
-```{r}
-# Calculate distance from carcass over time
-thisEvent <- thisEvent %>%
-  mutate(distanceFromCarcass = as.numeric(sf::st_distance(., event))/1000)
-
-# Plot distance from carcass over time
-thisEvent %>%
-  ggplot(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
-  geom_point()+
-  geom_line()+
-  geom_vline(aes(xintercept = event$datetime[1]))+
-  theme_minimal()+
-  ylim(0, 100)
-```
-
-Now I want to do this for all feeding events.
-```{r}
+Do this for all feeding events.
+```{r results='hide',fig.keep='all'}
 # Make a list of the datasets for each feeding event, ranging from 2 hours before carcass placement through 200 hours after carcass placement. For each point in the dataset, calculate the distance from the carcass.
 eventsList <- feedEvents %>%
   group_by(datetime) %>%
@@ -300,7 +311,7 @@ length(eventsList)
 
 eventsDat <- lapply(eventsList, function(x){
   dat <- datMasked %>%
-    filter(timestamp > x$datetime[1]-lubridate::as.duration("2 hours") & timestamp < x$datetime[1] + lubridate::as.duration("100 hours")) %>%
+    filter(timestamp > x$datetime[1]-lubridate::as.duration("2 hours") & timestamp < x$datetime[1] + lubridate::as.duration(maxTimeWords)) %>%
     mutate(timeSinceCarcassPlaced = timestamp - x$datetime[1])
 })
 
@@ -341,15 +352,23 @@ eventsDat <- map2(.x = eventsDat, .y = elevRasters, .f = function(.x, .y){
 
 # Now we can use this to make the same plot for each feeding event, limiting it to a certain radius
 plots <- map2(.x = eventsDat, .y = eventsList, .f = function(.x, .y){
+  # min <- min(.x$timestamp[.x$distanceFromCarcass <= 20])
+  # max <- max(.x$timestamp[.x$distanceFromCarcass <= 20])
   p <- .x %>%
-  ggplot(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
-  geom_point()+
-  geom_line()+
-  geom_vline(aes(xintercept = .y$datetime[1]))+
-  theme_minimal()+
-  ylim(0, 20)
+    ggplot()+
+    geom_point(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
+    geom_line(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
+    geom_vline(aes(xintercept = .y$datetime[1]))+
+    theme_minimal()+
+    # geom_rect(data = sunsetSunrise %>%
+    #             filter(sunset > min & sunset < max),
+    #           aes(xmin = sunset, 
+    #               xmax = sunrise, 
+    #               ymin = -Inf, 
+    #               ymax = Inf), alpha = 0.1)+
+    ylim(0, 20)
 })
-plots
+suppressWarnings(print(plots))
 ```
 
 ### Detections and arrivals
@@ -383,7 +402,7 @@ allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
 Let's assume that all carcasses will be detected within 10 days = 240 hours = 14400 minutes. So we'll filter the data down to that.
 ```{r}
 firstDetections <- allCarcasses %>%
-  filter(timeSinceCarcassPlaced > 0 & timeSinceCarcassPlaced < 14400, detection == TRUE) %>%
+  filter(timeSinceCarcassPlaced > 0 & timeSinceCarcassPlaced < maxTime*60, detection == TRUE) %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = TRUE) %>%
   slice(1)
@@ -404,7 +423,7 @@ firstDetections %>%
 #### Time to first visit
 ```{r}
 firstVisits <- allCarcasses %>%
-  filter(timeSinceCarcassPlaced > 0 & timeSinceCarcassPlaced < 14400, visit == TRUE) %>%
+  filter(timeSinceCarcassPlaced > 0 & timeSinceCarcassPlaced < maxTime*60, visit == TRUE) %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = TRUE) %>%
   slice(1)
@@ -498,16 +517,13 @@ df <- df %>%
   mutate(timeSinceFirstVisit = timestamp-timestamp[1])
 
 df %>%
-  filter(as.numeric(timeSinceFirstVisit)/3600 < 48) %>%
+  filter(as.numeric(timeSinceFirstVisit)/3600 < maxTime) %>%
   ggplot(aes(x = as.numeric(timeSinceFirstVisit)/3600, y = nFirstVisits, col = as.factor(eventID)))+       geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
   ylab("Number of unique vultures that have visited")+
   xlab("Time since the first vulture first visited (hours)")
 ```
-Really really need information about the following:
-1. How long does a carcass stick around once it's placed?
-2. How often are new carcasses deposited at the same feeding site? (I can actually get this information myself, by analyzing the data differently, i.e. overlaying the carcass placements with the entire time series instead of subsetting the data separately for each carcass.)
 
 ### Over time, # vultures within each distance band (0-1, 0-5, 0-10) etc. colored by band
 
@@ -537,13 +553,17 @@ eventSumms <- summ %>%
   group_split(.keep = T)
 plots <- lapply(eventSumms, function(x){
   p <- x %>%
-  mutate(thresh = factor(thresh, levels = c("under1", "under5", "under10", "under50", "under100", "over100"))) %>%
-  ggplot(aes(x = hour, y = n, col = thresh))+
-  geom_point()+
-  geom_line()+
-  theme_classic()
+    mutate(thresh = factor(thresh, levels = c("under1", "under5", "under10", "under50", "under100", "over100"))) %>%
+    ggplot(aes(x = hour, y = n, col = thresh))+
+    geom_point()+
+    geom_line()+
+    theme_classic()+
+    ylab("Number of vultures at this distance")+
+    xlab("Distance threshold")
   return(p)
 })
+
+plots[1:10]
 ```
 
 ### for each carcass, # visits each hour.
@@ -551,6 +571,7 @@ plots <- lapply(eventSumms, function(x){
 ```{r}
 # Let's look at visits that are separated by at least one non-visit.
 visitsPerHour <- allCarcasses %>%
+  filter(timeSinceCarcassPlaced < (maxTime*60)) %>%
   dplyr::select(eventID, timeSinceCarcassPlaced, trackId, visit) %>%
   group_by(eventID, trackId) %>%
   arrange(timeSinceCarcassPlaced, .by_group = TRUE) %>%
@@ -575,10 +596,187 @@ visitsPerHour %>%
 
 - Aaand it did not. This is really not the pattern I was expecting to see... Still need to get a sense for carcass depletion.
 
-### For each vulture, number of visits to the carcass (until its depletion) (within a certain window)
+## ANIMATION
+I'm going to be following this tutorial: https://hansenjohnson.org/post/animate-movement-in-r/
 
-### Let's try mapping the feeding events onto the time series directly.
-Hmm, but what does that even mean...
+### STEP 1: 
+```{r}
+# get basemap data
+bg = ne_countries(country = c("israel", "palestine"), returnclass = "sf")
 
+# take a look at our data
+head(datMasked)
 
+# simplify the data
+datMaskedSimple <- datMasked %>%
+  dplyr::select(trackId, timestamp, ground_speed, location_lat, location_long)
+
+head(datMaskedSimple)
+```
+### STEP 2: Process the data
+```{r}
+# For the animation to work, we have to have these fixes taken at regular intervals. That also means we have to fill in the blank intervals.
+
+# For now, I'm going to aggregate the fixes to every hour. Eventually might want to do every minute (we definitely don't need the seconds).
+hours <- datMaskedSimple %>%
+  mutate(hour = lubridate::floor_date(timestamp, unit = "hours"))
+
+# compute hourly average positions and speeds
+hours <- hours %>%
+  dplyr::select(-timestamp) %>%
+  sf::st_drop_geometry() %>%
+  group_by(trackId, hour) %>%
+  mutate(lat = mean(location_lat),
+         long = mean(location_long),
+         speed = mean(ground_speed)) %>%
+  dplyr::select(trackId, hour, lat, long, speed) %>%
+  distinct()
+
+# create 'ideal' data with all combinations of data
+ideal = expand_grid(
+  trackId = unique(hours$trackId),
+  hour = seq(from = min(hours$hour), to = max(hours$hour), by = "hour")
+)
+
+# create complete dataset
+df_all <- left_join(ideal, hours)
+```
+
+### STEP 3: Make the plot
+```{r}
+
+# To make this more digestible, I'm going to start with just a few days.
+early <- as.POSIXct("2022-10-01 00:00:00")
+
+testData <- df_all %>%
+  filter(hour > early) %>%
+  group_by(trackId) %>%
+  mutate(next_long = lead(long),
+         next_lat = lead(lat))
+
+p <- ggplot()+
+  geom_sf(data = bg)+
+  coord_sf(xlim = c(34.5, 35.5), 
+           ylim = c(30, 32), 
+           expand = FALSE)+
+  # lines and points
+  geom_path(data = testData, 
+            aes(x = long, y = lat, group = trackId, color = trackId), 
+            alpha = 0.3, size = 0.5)+
+  geom_point(data = testData, 
+             aes(x = long, y = lat, group = trackId, color = trackId),
+             alpha = 0.7, size = 1)+
+  scale_color_viridis_d(option = "inferno")+
+  labs(x = NULL, y = NULL)+
+  theme_dark()+
+  theme(panel.grid = element_blank(),
+        legend.position = "none")+
+  NULL
+p
+```
+
+### STEP 4: Make the animation
+```{r eval = FALSE}
+anim <- p + 
+  transition_reveal(along = hour)+
+  ease_aes('linear')+
+  ggtitle("Hour: {frame_along}")
+
+gganimate::animate(anim, nframes = length(unique(testData$hour)), fps = 10)
+```
+
+Okay, I would have to tweak this animation a lot more in order to really show them arriving at a carcass, I think.
+
+## ARRIVAL ORDER at known carcasses
+### Visits
+```{r}
+# Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
+visitOrders <- allCarcasses %>%
+  mutate(timeSinceCarcassPlaced = as.numeric(timeSinceCarcassPlaced)) %>%
+  mutate(hoursSinceCarcassPlaced = timeSinceCarcassPlaced/60) %>%
+  filter(hoursSinceCarcassPlaced <= 96) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, distanceFromCarcass, visit, visit, hour) %>%
+  distinct() %>%
+  filter(visit == TRUE) %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = T) %>%
+  group_split(.keep = T) %>%
+  lapply(., function(x){
+    x %>% dplyr::select(trackId, eventID) %>%
+      distinct()
+  })
+
+# Remove repeated elements in a row
+visitOrders_noRepeats <- visitOrders%>%
+  lapply(., function(x){
+    data.frame(trackId = rle(x$trackId)$values,
+               eventID = x$eventID[1])
+  })
+
+# Get only firsts
+visitOrders_firstOnly <- visitOrders_noRepeats %>%
+  lapply(., function(x){
+    distinct(x)
+  })
+
+# Collapse into a data frame
+visitOrdersDF <- lapply(visitOrders_firstOnly, function(x){
+  x %>% mutate(visitOrder = 1:nrow(.))
+}) %>%
+  data.table::rbindlist() %>%
+  as.data.frame()
+```
+
+### Detections
+Now we can do the same thing for detections (i.e. not only visits)
+```{r}
+# Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
+detectionOrders <- allCarcasses %>%
+  mutate(timeSinceCarcassPlaced = as.numeric(timeSinceCarcassPlaced)) %>%
+  mutate(hoursSinceCarcassPlaced = timeSinceCarcassPlaced/60) %>%
+  filter(hoursSinceCarcassPlaced <= 96) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, distanceFromCarcass, detection, detection, hour) %>%
+  distinct() %>%
+  filter(detection == TRUE) %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = T) %>%
+  group_split(.keep = T) %>%
+  lapply(., function(x){
+    x %>% dplyr::select(trackId, eventID) %>%
+      distinct()
+  })
+
+# Remove repeated elements in a row
+detectionOrders_noRepeats <- detectionOrders%>%
+  lapply(., function(x){
+    data.frame(trackId = rle(x$trackId)$values,
+               eventID = x$eventID[1])
+  })
+
+# Get only firsts
+detectionOrders_firstOnly <- detectionOrders_noRepeats %>%
+  lapply(., function(x){
+    distinct(x)
+  })
+
+# Collapse into a data frame
+detectionOrdersDF <- lapply(detectionOrders_firstOnly, function(x){
+  x %>% mutate(detectionOrder = 1:nrow(.))
+}) %>%
+  data.table::rbindlist() %>%
+  as.data.frame()
+```
+
+### Compare visits vs. detections
+```{r}
+
+# Does detection rank order correlate with visit rank order?
+dfCombined <- left_join(detectionOrdersDF, visitOrdersDF) # important to do it this way, not visit, detection, because visits are nested within detections.
+
+dfCombined %>%
+  filter(is.na(detectionOrder)) # good, there are no NA's in detectionOrder
+
+dfCombined %>%
+  filter(is.na(visitOrder)) # to be expected, there are some NA's in visitOrder.
+```
 
