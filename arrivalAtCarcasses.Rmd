@@ -769,8 +769,7 @@ detectionOrdersDF <- lapply(detectionOrders_firstOnly, function(x){
 
 ### Compare visits vs. detections
 ```{r}
-
-# Does detection rank order correlate with visit rank order?
+# SANITY CHECK
 dfCombined <- left_join(detectionOrdersDF, visitOrdersDF) # important to do it this way, not visit, detection, because visits are nested within detections.
 
 dfCombined %>%
@@ -778,5 +777,16 @@ dfCombined %>%
 
 dfCombined %>%
   filter(is.na(visitOrder)) # to be expected, there are some NA's in visitOrder.
+
+# Does detection rank order correlate with visit rank order?
+dfCombined %>%
+  ggplot(aes(x = detectionOrder, y = visitOrder, col = factor(eventID)))+
+  geom_point(alpha = 0.5, size = 2)+
+  geom_smooth(method = "lm", se = F, size = 0.5)+
+  theme_minimal()+
+  ylab("Rank order (visits)")+
+  xlab("Rank order (detections)")+
+  theme(legend.position = "none")
 ```
 
+Generally, there is a relationship between detection order and visit order. This makes sense, since visits are a subset of detections.
