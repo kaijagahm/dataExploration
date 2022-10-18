@@ -530,7 +530,7 @@ df %>%
 
 ### Over time, # vultures within each distance band (0-1, 0-5, 0-10) etc. colored by band
 
-```{r out.width = "50%"}
+```{r results='hide',fig.keep='all', out.width = "50%"}
 allCarcasses <- allCarcasses %>%
   filter(timeSinceCarcassPlaced > 0) %>%
   mutate(hour = lubridate::floor_date(timestamp, unit = "hour")) %>%
