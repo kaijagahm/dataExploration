@@ -24,5 +24,79 @@ library(sf)
 
 ```{r}
 datAnnot <- feather::read_feather("data/datAnnot.feather")
+ww <- read.csv("data/whoswho_vultures04oct22_new.xlsx - all gps tags.csv", na.strings = c("NA", "", " "))
+```
+
+Get only the deaths
+```{r}
+deaths <- ww %>%
+  dplyr::select(Nili_id, Movebank_study, Movebank_id, deploy_on_date, deploy_off_date, deployment_duration, is_alive, reason_stop, date_death, death.hospital) %>%
+  dplyr::filter(!is.na(date_death) & !is.na(Movebank_id))
+nrow(deaths)
+head(deaths)
+
+# Check that all of the deaths have is_alive == 0
+table(deaths$is_alive) # good.
+table(deaths$is_alive, exclude = NULL) # why is one of these NA?
+deaths %>% filter(is.na(is_alive)) # okay this should obviously be 0, it's just missing. So otherwise we're doing okay.
+
+# Convert the dates
+deaths <- deaths %>%
+  mutate(across(c(deploy_on_date, deploy_off_date, date_death), .f = function(x){
+    stringr::str_remove(x, ".*day,\\s")
+    lubridate::parse_date_time2(x, orders = c("OmdY", "dOmY"))
+  }))
+
+deaths %>%
+  filter(is.na(date_death)) # good, now we have death dates for all
+
+# Do we have start and end dates for all? (not sure we really need)
+deaths %>%
+  filter(is.na(deploy_on_date)) # we have start dates, good.
+
+deaths %>%
+  filter(is.na(deploy_off_date)) # oh, we have end dates, good! Idk why I thought we didn't.
+
+# Fix the death date for J18w, which I discovered in a previous commit to be a year off.
+deaths <- deaths %>%
+  mutate(date_death = case_when(Movebank_id == "J18w" ~ deploy_off_date,
+                                TRUE ~ date_death))
+
+# Include only Ornitela birds
+orniDeaths <- deaths %>%
+  filter(Movebank_study == "Ornitela_Vultures_Gyps_fulvus_TAU_UCLA_Israel")
+nrow(orniDeaths) # only 19 birds have died so far in this study. Huh. I would have assumed more.
+```
+
+Make sure we don't have any data after each bird's date of death
+```{r}
+# Turn the data frame into a list so we can operate on each row. XXX I wonder if this isn't necessary.
+orniDeathsList <- orniDeaths %>%
+  group_by(Movebank_id) %>%
+  group_split(.keep = T)
+
+# I don't want all the column headings, just some of them:
+datAnnotSimp <- datAnnot %>%
+  filter(status == "valid") %>%
+  dplyr::select(trackId, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status)
+
+# get any "ghost data", aka "valid" data occurring after the date of death
+ghostData <- lapply(orniDeathsList, function(x){
+  ghostData <- datAnnotSimp %>%
+    filter(trackId == x$Movebank_id[1]) %>%
+    filter(dateOnly > x$date_death[1])
+})
+indivs <- lapply(ghostData, function(x){x$trackId[1]}) %>% unlist()
+```
+
+For each bird's death, extract all data 1 month before through 1 month after.
+```{r}
+orniDeathsDat <- lapply(orniDeathsList, function(x){
+  oneMonthBefore <- x$date_death[1] - lubridate::as.duration("1 month")
+  oneMonthAfter <- x$date_death[1] + lubridate::as.duration("1 month")
+  dat <- datAnnotSimp %>%
+    filter(timestamp >= oneMonthBefore & timestamp <= oneMonthAfter)
+  return(dat)
+})
 ```
 
