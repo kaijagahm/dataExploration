@@ -2,14 +2,16 @@
 title: "Arrival At Carcasses"
 author: "Kaija Gahm"
 date: "2022-10-10"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 ```
 
-```{r}
+```{r include = F}
 library(tidyverse)
 library(vultureUtils)
 library(igraph)
@@ -34,7 +36,7 @@ datAnnot <- feather::read_feather("data/datAnnot.feather")
 ## IDENTIFY FEEDING EVENTS
 Let's move on to examining an individual's movement patterns to identify arrival at a carcass site.
 Going to pick the individual with the longest run:
-```{r}
+```{r include = F}
 targetIndiv <- datAnnot %>%
   dplyr::select(trackId, longestRun) %>%
   distinct() %>%
@@ -64,7 +66,7 @@ acc %>%
 ```
 Okay, that's not very informative, as expected. Let's split this by day and just look at one day's sequence.
 
-```{r}
+```{r include = F}
 accDays <- lapply(trackDays, function(x){
   x %>% dplyr::select(dateOnly, timestamp, contains("acceleration_")) %>%
     pivot_longer(cols = contains("acceleration_"), names_to = "axis", values_to = "acceleration") %>%
@@ -99,7 +101,7 @@ altitude
 ### Relative altitude
 In order for this to make any sense at all, we need to cross-reference these measurements with elevation data for Israel. We can obtain this using the `elevatr` package.
 
-```{r}
+```{r include = F}
 # Add sunrise and sunset information using suncalc
 ## first let's get the mean lat and long for the current track
 meanLat <- mean(track$location_lat)
@@ -164,7 +166,7 @@ altitude
 Read in the feeding event data (this is the most updated version we have; should work on getting more info from more recent feeding events.)
 
 #### Sunrise/sunset, day/night to datAnnot
-```{r}
+```{r include = F}
 # using the mean values of lat and long for this dataset, which may not be perfect but it's fairly decent.
 meanLat <- mean(datAnnot$location_lat)
 meanLong <- mean(datAnnot$location_long)
@@ -205,7 +207,7 @@ table(feedEvents$area)
 ### Feeding station locations
 Okay, now that we have that data, we critically need access to the feeding station data so that we can match these carcass drops to lat/long.
 
-```{r}
+```{r include = F}
 feedingStations <- read.csv("data/feeding_station_south_coordinates.xlsx - Sheet1.csv")
 head(feedingStations)
 
@@ -283,9 +285,9 @@ event <- feedEvents %>%
 # In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass.
 # Filter the data to just get the data 2 hours before up to 24*4 = 96 hours later than the feeding time.
 maxTimeWords <- "96 hours"
-maxTime <- "96"
+maxTime <- 96
 thisEvent <- datMasked %>%
-  filter(timestamp > event$datetime[5] - lubridate::as.duration("2 hours") & timestamp < event$datetime[5] + lubridate::as.duration(maxTimeWords))
+  filter(timestamp > event$datetime[9] - lubridate::as.duration("2 hours") & timestamp < event$datetime[9] + lubridate::as.duration(maxTimeWords))
 # I have not yet restricted this spatially.
 
 bbox <- bboxFromRad(lon = event$long, lat = event$lat, kmDist = 3)
@@ -305,7 +307,7 @@ In the supplementary material of Harel et al. 2016, it says that carcasses are u
 I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it. Duh.
 
 Do this for all feeding events.
-```{r results='hide',fig.keep='all'}
+```{r results='hide',fig.keep='all', out.width = "50%"}
 # Make a list of the datasets for each feeding event, ranging from 2 hours before carcass placement through 200 hours after carcass placement. For each point in the dataset, calculate the distance from the carcass.
 eventsList <- feedEvents %>%
   group_by(datetime) %>%
@@ -361,14 +363,10 @@ plots <- map2(.x = eventsDat, .y = eventsList, .f = function(.x, .y){
     ggplot()+
     geom_point(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
     geom_line(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
-    geom_vline(aes(xintercept = .y$datetime[1]))+
+    geom_vline(data = .y, aes(xintercept = .y$datetime[1]))+
     theme_minimal()+
-    ggplot(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
-    geom_point()+
-    geom_line()+
-    geom_vline(aes(xintercept = .y$datetime[1]))+
-    theme_minimal()+
-    ylim(0, 20)
+    ylim(0, 20)+
+    theme(legend.position = "none")
 })
 suppressWarnings(print(plots))
 ```
@@ -379,7 +377,7 @@ suppressWarnings(print(plots))
 2. Define "arrival" as being within 0.25km with a ground speed < 5m/s and an elevation < 10m
 Calculate detections and arrivals for each bird at each carcass.
 
-```{r}
+```{r include = F}
 eventsDat <- lapply(eventsDat, function(x){
   x <- x %>%
     mutate(detection = case_when(distanceFromCarcass < 1 & 
@@ -394,7 +392,7 @@ eventsDat <- lapply(eventsDat, function(x){
 ```
 
 ### Latency
-```{r}
+```{r include = F}
 allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
   as.data.frame() %>%
   dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, geometry, timeSinceCarcassPlaced, distanceFromCarcass, groundElev, height_above_ground, detection, visit)
@@ -462,7 +460,9 @@ df %>%
   geom_point(size = 2)+
   theme_classic()+
   geom_smooth(method = "lm") # ok this is not intuitive... would think there would be a very straightforward relationship between first detection and first visit.
+```
 
+```{r include = F}
 # Oh no, wait, is detection always earlier than visit?
 df$visit >= df$detection # always greater than or equal, by definition (because a visit also counts as a detection).
 df$visit == df$detection # there are some where the first detection is the same as the first visit.
@@ -470,6 +470,9 @@ summary(as.numeric(df$visitLag)) # yeah, several of the visitLags are 0, which i
 
 # Do later-detected carcasses take longer to be visited after detection?
 head(df)
+```
+
+```{r}
 df %>%
   filter(detection < 7500) %>%
   filter(!is.na(detection) & !is.na(visitLag)) %>%
@@ -487,20 +490,20 @@ df %>%
 ### First visit times for each bird at each carcass
 
 Group by carcass and individual to get each bird's first visit
-```{r}
+```{r  include = F}
 df <- allCarcasses %>%
   group_by(eventID, trackId) %>%
   filter(visit == TRUE) %>%
   arrange(timestamp, .by_group = TRUE) %>%
   slice(1) 
 
-head(df)
-
 df <- df %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = T) %>%
   mutate(nFirstVisits = 1:n())
+```
 
+```{r}
 # Make some curves
 df %>%
   ggplot(aes(x = as.numeric(timeSinceCarcassPlaced)/60, y = nFirstVisits, col = as.factor(eventID)))+       geom_line()+
@@ -511,8 +514,6 @@ df %>%
 
 # Aha, this isn't informative because it includes a bunch of days.
 # We need the time extent to be really long because it needs to allow for a long period of time between placement and first detection. But that's not actually the x axis. Need to be plotting time since first overall visit detection vs. # of vultures that have made first visits.
-head(df)
-
 df <- df %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = TRUE) %>%
@@ -529,7 +530,7 @@ df %>%
 
 ### Over time, # vultures within each distance band (0-1, 0-5, 0-10) etc. colored by band
 
-```{r}
+```{r out.width = "50%"}
 allCarcasses <- allCarcasses %>%
   filter(timeSinceCarcassPlaced > 0) %>%
   mutate(hour = lubridate::floor_date(timestamp, unit = "hour")) %>%
@@ -570,7 +571,7 @@ plots[1:10]
 
 ### for each carcass, # visits each hour.
 
-```{r}
+```{r include = F}
 # Let's look at visits that are separated by at least one non-visit.
 visitsPerHour <- allCarcasses %>%
   filter(timeSinceCarcassPlaced < (maxTime*60)) %>%
@@ -586,7 +587,9 @@ visitsPerHour <- allCarcasses %>%
   mutate(hours = as.numeric(timeSinceCarcassPlaced)%%60) %>%
   group_by(eventID, hours) %>%
   summarize(nVisits = n())
+```
 
+```{r}
 visitsPerHour %>%
   ggplot(aes(x = hours, y = nVisits, group = eventID, col = factor(eventID)))+
   geom_line()+
@@ -678,7 +681,7 @@ p
 ```
 
 ### STEP 4: Make the animation
-```{r eval = FALSE}
+```{r}
 anim <- p + 
   transition_reveal(along = hour)+
   ease_aes('linear')+
@@ -770,7 +773,7 @@ detectionOrdersDF <- lapply(detectionOrders_firstOnly, function(x){
 ```
 
 ### Compare visits vs. detections
-```{r}
+```{r include = F}
 # SANITY CHECK
 dfCombined <- left_join(detectionOrdersDF, visitOrdersDF) # important to do it this way, not visit, detection, because visits are nested within detections.
 
@@ -779,7 +782,8 @@ dfCombined %>%
 
 dfCombined %>%
   filter(is.na(visitOrder)) # to be expected, there are some NA's in visitOrder.
-
+```
+```{r}
 # Does detection rank order correlate with visit rank order?
 dfCombined %>%
   ggplot(aes(x = detectionOrder, y = visitOrder, col = factor(eventID)))+
