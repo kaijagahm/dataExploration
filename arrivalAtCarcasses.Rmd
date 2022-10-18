@@ -20,6 +20,9 @@ source("bboxFromRad.R")
 library(units)
 library(tidyverse)
 library(sf)
+library(gganimate)
+library(rnaturalearth)
+library(gifski)
 ```
 
 ```{r}
@@ -110,7 +113,7 @@ track <- track %>%
 # Make it an sf object and add elevation
 trackSF <- track %>%
   sf::st_as_sf(., coords = c("location_long", "location_lat"), crs = "WGS84")
-elevs <- elevatr::get_elev_raster(trackSF, z = 12) 
+elevs <- elevatr::get_elev_raster(trackSF, z = 10) 
 trackSF$groundElev <- raster::extract(x = elevs, y = trackSF)
 trackSF <- trackSF %>%
   mutate(height_above_ground = height_above_msl - groundElev)
@@ -216,7 +219,7 @@ feedEvents <- feedEvents %>%
             by = c("feeding_station" = "Feeding_station")) %>%
   mutate(lat = as.numeric(lat),
          long = as.numeric(long))
-  
+
 head(feedEvents)
 
 
@@ -360,12 +363,11 @@ plots <- map2(.x = eventsDat, .y = eventsList, .f = function(.x, .y){
     geom_line(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
     geom_vline(aes(xintercept = .y$datetime[1]))+
     theme_minimal()+
-    # geom_rect(data = sunsetSunrise %>%
-    #             filter(sunset > min & sunset < max),
-    #           aes(xmin = sunset, 
-    #               xmax = sunrise, 
-    #               ymin = -Inf, 
-    #               ymax = Inf), alpha = 0.1)+
+    ggplot(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
+    geom_point()+
+    geom_line()+
+    geom_vline(aes(xintercept = .y$datetime[1]))+
+    theme_minimal()+
     ylim(0, 20)
 })
 suppressWarnings(print(plots))
@@ -475,7 +477,7 @@ df %>%
   geom_point()+
   theme_classic()+
   geom_smooth(method = "lm")+ # no relationship.
-# But what if we remove the ones where visitLag is 0?
+  # But what if we remove the ones where visitLag is 0?
   geom_smooth(data = df %>%
                 filter(detection < 7500, !is.na(detection), !is.na(visitLag), visitLag > 0),
               aes(x = detection, y = visitLag), method = "lm", col = "red")
@@ -491,7 +493,7 @@ df <- allCarcasses %>%
   filter(visit == TRUE) %>%
   arrange(timestamp, .by_group = TRUE) %>%
   slice(1) 
-  
+
 head(df)
 
 df <- df %>%
