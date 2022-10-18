@@ -728,16 +728,16 @@ visitOrdersDF <- lapply(visitOrders_firstOnly, function(x){
 ```
 
 ### Detections
-Now we can do the same thing for detections (i.e. not only visits)
+Now we can do the same thing for detections that are NOT visits
 ```{r}
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 detectionOrders <- allCarcasses %>%
   mutate(timeSinceCarcassPlaced = as.numeric(timeSinceCarcassPlaced)) %>%
   mutate(hoursSinceCarcassPlaced = timeSinceCarcassPlaced/60) %>%
   filter(hoursSinceCarcassPlaced <= 96) %>%
-  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, distanceFromCarcass, detection, detection, hour) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, distanceFromCarcass, visit, detection, hour) %>%
   distinct() %>%
-  filter(detection == TRUE) %>%
+  filter(detection == TRUE & visit == FALSE) %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = T) %>%
   group_split(.keep = T) %>%
@@ -789,4 +789,9 @@ dfCombined %>%
   theme(legend.position = "none")
 ```
 
-Generally, there is a relationship between detection order and visit order. This makes sense, since visits are a subset of detections.
+There is usually a relationship between detections and visits--i.e. those that detect the carcass later are also later to visit. But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
+
+## NEXT STEPS:
+- Read the NBDA paper to figure out what information we need to assess info spread
+- Create networks to test alternative hypotheses
+- Follow NBDA procedures.
