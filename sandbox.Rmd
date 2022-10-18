@@ -100,3 +100,38 @@ orniDeathsDat <- lapply(orniDeathsList, function(x){
 })
 ```
 
+Get data on the number of individuals present each day before and after
+```{r}
+whoDied <- lapply(orniDeathsList, function(x){x$Movebank_id[1]})
+deathDates <- lapply(orniDeathsList, function(x){x$date_death[1]})
+
+nIndivsDaily <- suppressMessages(pmap(.l = list("dat" = orniDeathsDat, "date" = deathDates, "who" = whoDied), .f = function(dat, date, who){
+  out <- dat %>% 
+    dplyr::select(dateOnly, trackId) %>% 
+    distinct() %>% 
+    mutate(deathDate = date) %>%
+    group_by(dateOnly, deathDate) %>% 
+    summarize(nIndivs = length(unique(trackId))) %>%
+    mutate(whoDied = who)
+  return(out)
+})) %>%
+  data.table::rbindlist() %>%
+  as.data.frame() %>%
+  mutate(afterDeath = dateOnly > deathDate)
+```
+
+Visualize individuals present before and after death
+```{r}
+nIndivsDaily %>%
+  ggplot(aes(x = dateOnly, y = nIndivs, col = afterDeath))+
+  geom_point()+
+  geom_line()+
+  facet_wrap(~whoDied, scales = "free")+
+  geom_vline(data = nIndivsDaily, aes(xintercept = deathDate))+
+  theme(legend.position = "none")
+```
+Create feeding and flight networks, daily.
+```{r}
+
+```
+
