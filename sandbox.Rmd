@@ -24,5 +24,159 @@ library(sf)
 
 ```{r}
 datAnnot <- feather::read_feather("data/datAnnot.feather")
+mask <- sf::st_read("data/CutOffRegion.kml")
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
+  sf::st_transform("WGS84")
+
+#datAnnotCleaned <- vultureUtils::cleanData(dataset = datAnnot, mask = mask, inMaskThreshold = 0.33, removeVars = F)
+#datAnnotCleaned <- sf::st_drop_geometry(datAnnotCleaned) #XXX should make this part of the cleanData function, with option to return as an sf object if desired.
+#feather::write_feather(datAnnotCleaned, "data/datAnnotCleaned.feather")
+datAnnotCleaned <- feather::read_feather("data/datAnnotCleaned.feather")
+
+# Load the most recent version of the who's who
+ww <- read.csv("data/whoswho_vultures04oct22_new.xlsx - all gps tags.csv", na.strings = c("NA", "", " "))
 ```
+
+Get only the deaths
+```{r}
+deaths <- ww %>%
+  dplyr::select(Nili_id, Movebank_study, Movebank_id, deploy_on_date, deploy_off_date, deployment_duration, is_alive, reason_stop, date_death, death.hospital) %>%
+  dplyr::filter(!is.na(date_death) & !is.na(Movebank_id))
+nrow(deaths)
+head(deaths)
+
+# Check that all of the deaths have is_alive == 0
+table(deaths$is_alive) # good.
+table(deaths$is_alive, exclude = NULL) # why is one of these NA?
+deaths %>% filter(is.na(is_alive)) # okay this should obviously be 0, it's just missing. So otherwise we're doing okay.
+
+# Convert the dates
+deaths <- deaths %>%
+  mutate(across(c(deploy_on_date, deploy_off_date, date_death), .f = function(x){
+    stringr::str_remove(x, ".*day,\\s")
+    lubridate::parse_date_time2(x, orders = c("OmdY", "dOmY"))
+  }))
+
+deaths %>%
+  filter(is.na(date_death)) # good, now we have death dates for all
+
+# Do we have start and end dates for all? (not sure we really need)
+deaths %>%
+  filter(is.na(deploy_on_date)) # we have start dates, good.
+
+deaths %>%
+  filter(is.na(deploy_off_date)) # oh, we have end dates, good! Idk why I thought we didn't.
+
+# Fix the death date for J18w, which I discovered in a previous commit to be a year off.
+deaths <- deaths %>%
+  mutate(date_death = case_when(Movebank_id == "J18w" ~ deploy_off_date,
+                                TRUE ~ date_death))
+
+# Include only Ornitela birds
+orniDeaths <- deaths %>%
+  filter(Movebank_study == "Ornitela_Vultures_Gyps_fulvus_TAU_UCLA_Israel")
+nrow(orniDeaths) # only 19 birds have died so far in this study. Huh. I would have assumed more.
+```
+
+Make sure we don't have any data after each bird's date of death
+```{r}
+# Turn the data frame into a list so we can operate on each row. XXX I wonder if this isn't necessary.
+orniDeathsList <- orniDeaths %>%
+  group_by(Movebank_id) %>%
+  group_split(.keep = T)
+
+# I don't want all the column headings, just some of them:
+datAnnotCleanedSimp <- datAnnotCleaned %>%
+  filter(status == "valid") %>%
+  dplyr::select(trackId, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status, gps_time_to_fix, gps_satellite_count)
+
+# get any "ghost data", aka "valid" data occurring after the date of death
+ghostData <- lapply(orniDeathsList, function(x){
+  ghostData <- datAnnotCleanedSimp %>%
+    filter(trackId == x$Movebank_id[1]) %>%
+    filter(dateOnly > x$date_death[1])
+})
+indivs <- lapply(ghostData, function(x){x$trackId[1]}) %>% unlist()
+```
+
+For each bird's death, extract all data 1 month before through 1 month after.
+```{r}
+orniDeathsDat <- lapply(orniDeathsList, function(x){
+  oneMonthBefore <- x$date_death[1] - lubridate::as.duration("1 month")
+  oneMonthAfter <- x$date_death[1] + lubridate::as.duration("1 month")
+  dat <- datAnnotCleanedSimp %>%
+    filter(timestamp >= oneMonthBefore & timestamp <= oneMonthAfter)
+  return(dat)
+})
+```
+
+Get data on the number of individuals present each day before and after
+```{r}
+whoDied <- lapply(orniDeathsList, function(x){x$Movebank_id[1]})
+deathDates <- lapply(orniDeathsList, function(x){x$date_death[1]})
+
+nIndivsDaily <- suppressMessages(pmap(.l = list("dat" = orniDeathsDat, "date" = deathDates, "who" = whoDied), .f = function(dat, date, who){
+  out <- dat %>% 
+    dplyr::select(dateOnly, trackId) %>% 
+    distinct() %>% 
+    mutate(deathDate = date) %>%
+    group_by(dateOnly, deathDate) %>% 
+    summarize(nIndivs = length(unique(trackId))) %>%
+    mutate(whoDied = who)
+  return(out)
+})) %>%
+  data.table::rbindlist() %>%
+  as.data.frame() %>%
+  mutate(afterDeath = dateOnly > deathDate)
+```
+
+Visualize individuals present before and after death
+```{r}
+nIndivsDaily %>%
+  ggplot(aes(x = dateOnly, y = nIndivs, col = afterDeath))+
+  geom_point()+
+  geom_line()+
+  facet_wrap(~whoDied, scales = "free")+
+  geom_vline(data = nIndivsDaily, aes(xintercept = deathDate))+
+  theme(legend.position = "none")
+```
+Create flight networks, daily.
+```{r}
+# For each death, split into days
+dailyData <- lapply(orniDeathsDat, function(x){
+  x %>%
+    group_by(dateOnly) %>%
+    group_split(.keep = T)
+})
+
+# Write the code to deal with just one death
+testDeath <- dailyData[[2]]
+testDat <- orniDeathsDat[[2]]
+
+dailyFlightEdges <- lapply(testDeath, function(x){
+  x <- sf::st_as_sf(x, coords = c("location_long", "location_lat"), remove = F) %>%
+    sf::st_set_crs(., "WGS84")
+  edgelist <- vultureUtils::getFlightEdges(dataset = x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250)
+  return(edgelist)
+})
+
+dailyFlightGraphs <- vultureUtils::makeGraphsList(dataList = dailyFlightEdges)$graphs
+```
+
+Create flight networks for the days before and after the death date
+```{r}
+df <- orniDeathsDat[[2]] %>%
+  sf::st_as_sf(., coords = c("location_long", "location_lat"), remove = F) %>%
+  sf::st_set_crs(., "WGS84")
+before <- df %>% filter(dateOnly < deathDates[[2]])
+after <- df %>% filter(dateOnly > deathDates[[2]])
+elBefore <- vultureUtils::getFlightEdges(dataset = before, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250)
+elAfter <- vultureUtils::getFlightEdges(dataset = after, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250)
+gBefore <- vultureUtils::makeGraphs(elBefore, interval = "5 days")$graphs
+gAfter <- vultureUtils::makeGraphs(elAfter, interval = "5 days")$graphs
+
+plot(gBefore[[length(gBefore)]])
+plot(gAfter[[1]])
+```
+
 

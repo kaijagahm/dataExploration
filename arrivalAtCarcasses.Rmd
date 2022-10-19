@@ -47,36 +47,9 @@ trackDays <- track %>%
   group_split(.keep = TRUE)
 ```
 
-### Acceleration
-Visualize acceleration
-```{r}
-acc <- track %>%
-  dplyr::select(dateOnly, timestamp, contains("acceleration_")) %>%
-  pivot_longer(cols = contains("acceleration_"), names_to = "axis", values_to = "acceleration") %>%
-  mutate(axis = str_remove(axis, "acceleration_raw_"))
-
-acc %>%
-  ggplot(aes(x = timestamp, y = acceleration, col = axis))+
-  geom_line()
-```
-Okay, that's not very informative, as expected. Let's split this by day and just look at one day's sequence.
-
-```{r}
-accDays <- lapply(trackDays, function(x){
-  x %>% dplyr::select(dateOnly, timestamp, contains("acceleration_")) %>%
-    pivot_longer(cols = contains("acceleration_"), names_to = "axis", values_to = "acceleration") %>%
-    mutate(axis = str_remove(axis, "acceleration_raw_"))
-})
-```
-
 ```{r}
 randomDay <- sample(1:length(accDays), size = 1)
-
-accDays[[randomDay]] %>%
-  ggplot(aes(x = timestamp, y = acceleration, col = axis))+
-  geom_line()
 ```
-Okay, this is kind of cool. But I'm not good enough at interpreting accelerometer data to know for sure how to read this.
 
 ### Speed and altitude
 What about speed and altitude? Can the combination of those tell us what we need to know?
