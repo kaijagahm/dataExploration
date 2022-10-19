@@ -51,23 +51,8 @@ trackDays <- track %>%
 randomDay <- sample(1:length(accDays), size = 1)
 ```
 
-### Speed and altitude
-What about speed and altitude? Can the combination of those tell us what we need to know?
-```{r}
-randomDay <- sample(1:length(accDays), size = 1)
-speed <- trackDays[[randomDay]] %>%
-  ggplot(aes(x = timestamp, y = ground_speed))+
-  geom_line()
-speed
-
-altitude <- trackDays[[randomDay]] %>%
-  ggplot(aes(x = timestamp, y = height_above_msl))+
-  geom_line()
-altitude
-```
-
 ### Relative altitude
-In order for this to make any sense at all, we need to cross-reference these measurements with elevation data for Israel. We can obtain this using the `elevatr` package.
+In order for an analysis of speed and altitude to make any sense at all, we need to cross-reference these measurements with elevation data for Israel. We can obtain this using the `elevatr` package.
 
 ```{r}
 # Add sunrise and sunset information using suncalc
