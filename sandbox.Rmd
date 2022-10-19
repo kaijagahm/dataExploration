@@ -24,6 +24,16 @@ library(sf)
 
 ```{r}
 datAnnot <- feather::read_feather("data/datAnnot.feather")
+mask <- sf::st_read("data/CutOffRegion.kml")
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
+  sf::st_transform("WGS84")
+
+#datAnnotCleaned <- vultureUtils::cleanData(dataset = datAnnot, mask = mask, inMaskThreshold = 0.33, removeVars = F)
+#datAnnotCleaned <- sf::st_drop_geometry(datAnnotCleaned) #XXX should make this part of the cleanData function, with option to return as an sf object if desired.
+#feather::write_feather(datAnnotCleaned, "data/datAnnotCleaned.feather")
+datAnnotCleaned <- feather::read_feather("data/datAnnotCleaned.feather")
+
+# Load the most recent version of the who's who
 ww <- read.csv("data/whoswho_vultures04oct22_new.xlsx - all gps tags.csv", na.strings = c("NA", "", " "))
 ```
 
@@ -76,13 +86,13 @@ orniDeathsList <- orniDeaths %>%
   group_split(.keep = T)
 
 # I don't want all the column headings, just some of them:
-datAnnotSimp <- datAnnot %>%
+datAnnotCleanedSimp <- datAnnotCleaned %>%
   filter(status == "valid") %>%
-  dplyr::select(trackId, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status)
+  dplyr::select(trackId, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status, gps_time_to_fix, gps_satellite_count)
 
 # get any "ghost data", aka "valid" data occurring after the date of death
 ghostData <- lapply(orniDeathsList, function(x){
-  ghostData <- datAnnotSimp %>%
+  ghostData <- datAnnotCleanedSimp %>%
     filter(trackId == x$Movebank_id[1]) %>%
     filter(dateOnly > x$date_death[1])
 })
@@ -94,7 +104,7 @@ For each bird's death, extract all data 1 month before through 1 month after.
 orniDeathsDat <- lapply(orniDeathsList, function(x){
   oneMonthBefore <- x$date_death[1] - lubridate::as.duration("1 month")
   oneMonthAfter <- x$date_death[1] + lubridate::as.duration("1 month")
-  dat <- datAnnotSimp %>%
+  dat <- datAnnotCleanedSimp %>%
     filter(timestamp >= oneMonthBefore & timestamp <= oneMonthAfter)
   return(dat)
 })
@@ -132,6 +142,23 @@ nIndivsDaily %>%
 ```
 Create feeding and flight networks, daily.
 ```{r}
+# For each death, split into days
+dailyData <- lapply(orniDeathsDat, function(x){
+  x %>%
+    group_by(dateOnly) %>%
+    group_split(.keep = T)
+})
+
+# Write the code to deal with just one death
+testDeath <- dailyData[[2]]
+testDat <- orniDeathsDat[[2]]
+
+dailyFlightEdges <- lapply(testDeath, function(x){
+  x <- sf::st_as_sf(x, coords = c("location_long", "location_lat"), remove = F) %>%
+    sf::st_set_crs(., "WGS84")
+  edgelist <- vultureUtils::getFlightEdges(dataset = x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250)
+  return(edgelist)
+})
 
 ```
 
