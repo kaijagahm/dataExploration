@@ -34,12 +34,7 @@ datAnnot <- feather::read_feather("data/datAnnot.feather")
 Let's move on to examining an individual's movement patterns to identify arrival at a carcass site.
 Going to pick the individual with the longest run:
 ```{r}
-targetIndiv <- datAnnot %>%
-  dplyr::select(trackId, longestRun) %>%
-  distinct() %>%
-  arrange(-longestRun) %>%
-  slice(1) %>%
-  pull(trackId)
+targetIndiv <- unique(datAnnot$trackId[datAnnot$longestRun == max(datAnnot$longestRun)])
 
 track <- datAnnot %>%
   filter(trackId == targetIndiv)
@@ -50,7 +45,7 @@ trackDays <- track %>%
 ```
 
 ```{r}
-randomDay <- sample(1:length(accDays), size = 1)
+randomDay <- sample(1:length(trackDays), size = 1)
 ```
 
 ### Relative altitude
@@ -191,67 +186,10 @@ feedEvents <- feedEvents %>%
   dplyr::select(-c(death_of_carcass_known, hours_since_death, origin_carcass, ranger, remarks))
 ```
 
-### Exploratory mapping
-
 ```{r}
+# Mask the data
 mask <- suppressMessages(sf::st_read("data/CutOffRegion.kml"))
 datMasked <- vultureUtils::maskData(dataset = datAnnot, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
-# Get bounding box
-lon <- range(datMasked$location_long)
-lat <- range(datMasked$location_lat)
-
-map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 7, maptype = "terrain-background")
-map
-
-test <- datMasked[1:100,] %>%
-  sf::st_set_crs("WGS84")
-
-# Get one individual
-test <- datMasked %>%
-  filter(trackId == "T61w")
-
-# Get bounding box for this indiv
-lon <- range(test$location_long)
-lat <- range(test$location_lat)
-
-map <- ggmap::get_stamenmap(bbox = c(lon[1], lat[1], lon[2], lat[2]), zoom = 10, maptype = "terrain-background")
-
-# Make the map
-ggmap(map)+
-  geom_point(data = test, aes(x = location_long.1, y = location_lat.1, col = timestamp), size = 0.2)+
-  geom_path(data = test, aes(x = location_long.1, y = location_lat.1, col = timestamp), size = 0.02)+
-  scale_color_viridis_c()+
-  ggtitle(paste0("T61w from ", min(test$dateOnly), " to ", max(test$dateOnly)))+
-  theme(legend.position = "none")
-```
-
-Okay, now that I know how to plot points and I know when and where the feeding events have occurred, time to plot points around each feeding station, color-coded by individual, around the time of the feeding events.
-
-```{r warning=F}
-head(feedEvents)
-# plot just the feeding events
-feedEvents %>%
-  ggplot(aes(x = long, y = lat, col = as.numeric(datetime)))+
-  geom_point(size = 2)+
-  scale_color_viridis_c()
-
-# In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass.
-# Filter the data to just get the data 2 hours before up to 24*4 = 96 hours later than the feeding time.
-maxTimeWords <- "72 hours"
-maxTime <- 72
-nToTest <- 5
-thisEvent <- datMasked %>%
-  filter(timestamp > feedEvents$datetime[nToTest] - lubridate::as.duration("2 hours") & timestamp < feedEvents$datetime[nToTest] + lubridate::as.duration(maxTimeWords))
-# I have not yet restricted this spatially.
-
-bbox <- bboxFromRad(lon = feedEvents$long[nToTest], lat = feedEvents$lat[nToTest], kmDist = 3)
-map <- ggmap::get_stamenmap(bbox = bbox, zoom = 10, maptype = "terrain-background")
-ggmap(map)+
-  geom_point(data = thisEvent, aes(x = location_long.1, y = location_lat.1, col = trackId), size = 1)+
-  #geom_path(data = thisEvent, aes(x = location_long.1, y = location_lat.1, col = trackId), size = 0.5)+
-  geom_point(data = event, aes(x = long, y = lat), col = "black", size = 3, pch = 17)+
-  scale_color_viridis_d()+
-  theme(legend.position = "none")
 ```
 
 ### Distance from carcass vs. time
@@ -260,9 +198,14 @@ In the supplementary material of Harel et al. 2016, it says that carcasses are u
 
 I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it. Duh.
 
-Do this for all feeding events.
+```{r}
+# Set some parameters for time lengths
+maxTime <- 72
+maxTimeWords <- paste(as.character(maxTime), "hours")
+```
+
 ```{r results='hide',fig.keep='all'}
-# Make a list of the datasets for each feeding event, ranging from 2 hours before carcass placement through 200 hours after carcass placement. For each point in the dataset, calculate the distance from the carcass.
+# Make a list of the datasets for each feeding event, ranging from 2 hours before carcass placement through `maxTime` hours after carcass placement. For each point in the dataset, calculate the distance from the carcass.
 eventsList <- feedEvents %>%
   group_by(datetime) %>%
   group_split(.keep = T)
