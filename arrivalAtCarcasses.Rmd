@@ -581,20 +581,18 @@ carcassSite <- eventsList %>% pluck(whichEvent) %>%
 bbox <- bboxFromRad(lon = carcassSite[2], lat = carcassSite[1], kmDist = 20)
 
 p <- ggplot()+
-  geom_sf(data = bg)+
+  geom_sf()+
   coord_sf(xlim = bbox$xlims, 
            ylim = bbox$ylims, 
            expand = FALSE)+
   # lines and points
   geom_path(data = df_all, 
-            aes(x = long, y = lat, group = trackId, color = trackId), 
+            aes(x = long, y = lat, group = trackId, color = dist), 
             alpha = 0.3, size = 0.5)+
   geom_point(data = df_all, 
-             aes(x = long, y = lat, group = trackId, color = trackId),
-             alpha = 0.7, size = 1)+
-  scale_color_viridis_d()+
+             aes(x = long, y = lat, group = trackId, color = dist),
+             alpha = 0.7, size = 2)+
   labs(x = NULL, y = NULL)+
-  theme_dark()+
   theme(panel.grid = element_blank(),
         legend.position = "none")+
   NULL
@@ -608,7 +606,8 @@ anim <- p +
   ease_aes('linear')+
   ggtitle("Hour: {frame_along}")
 
-gganimate::animate(anim, nframes = length(unique(df_all$hour)), fps = 10)
+frames <- length(unique(df_all$hour))
+gganimate::animate(anim, nframes = frames, fps = 10)
 gganimate::anim_save("data/carcassAnimation.gif", anim)
 ```
 
