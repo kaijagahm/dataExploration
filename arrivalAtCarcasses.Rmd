@@ -373,7 +373,6 @@ allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
 ```
 
 #### Time to first detection
-Let's assume that all carcasses will be detected within 10 days = 240 hours = 14400 minutes. So we'll filter the data down to that.
 ```{r}
 firstDetections <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced > 0 & hoursSinceCarcassPlaced < maxTime, 
@@ -416,86 +415,96 @@ firstVisits %>%
   ylab("Frequency")+
   xlab("Time to first visit (hours)")
 ```
-This looks very similar to the first detection graph.
-Let's plot them against each other:
 
-#### Detection vs. visit latency
+#### Detections and visits
 ```{r}
-df <- firstDetections %>%
+firsts <- firstDetections %>%
   mutate(type = "detection") %>%
-  bind_rows(firstVisits %>%
-              mutate(type = "visit")) %>%
+  bind_rows(firstVisits %>% mutate(type = "visit")) %>%
   dplyr::select(eventID, hoursSinceCarcassPlaced, type) %>%
-  pivot_wider(id_cols = eventID, values_from = hoursSinceCarcassPlaced, names_from = type) %>%
-  mutate(visitLag = visit-detection)
+  pivot_wider(id_cols = eventID, names_from = type, values_from = hoursSinceCarcassPlaced) %>%
+  mutate(latency = visit-detection)
+```
 
-df %>%
-  filter(detection < 7500) %>%
+Is there a relationship between first detection and first visit? This should be intuitively obvious.
+```{r}
+firsts %>%
+  filter(detection < maxTime) %>%
   filter(!is.na(detection) & !is.na(visit)) %>%
   ggplot(aes(x = detection, y = visit))+
   geom_point(size = 2)+
   theme_classic()+
-  geom_smooth(method = "lm") # ok this is not intuitive... would think there would be a very straightforward relationship between first detection and first visit.
-
-# Oh no, wait, is detection always earlier than visit?
-df$visit >= df$detection # always greater than or equal, by definition (because a visit also counts as a detection).
-df$visit == df$detection # there are some where the first detection is the same as the first visit.
-summary(as.numeric(df$visitLag)) # yeah, several of the visitLags are 0, which is another way of saying the same thing.
-
-# Do later-detected carcasses take longer to be visited after detection?
-head(df)
-df %>%
-  filter(detection < 7500) %>%
-  filter(!is.na(detection) & !is.na(visitLag)) %>%
-  ggplot(aes(x = detection, y = visitLag))+
-  geom_point()+
-  theme_classic()+
-  geom_smooth(method = "lm")+ # no relationship.
-  # But what if we remove the ones where visitLag is 0?
-  geom_smooth(data = df %>%
-                filter(detection < 7500, !is.na(detection), !is.na(visitLag), visitLag > 0),
-              aes(x = detection, y = visitLag), method = "lm", col = "red")
-# Still no significant relationship. Need to repeat this analysis with more carcass data.
+  geom_smooth(method = "lm")
 ```
 
-### First visit times for each bird at each carcass
-
-Group by carcass and individual to get each bird's first visit
+What is the relationship when we remove the 0 latencies?
 ```{r}
-df <- allCarcasses %>%
+firsts %>%
+  filter(detection < maxTime, latency > 0) %>%
+  filter(!is.na(detection) & !is.na(visit)) %>%
+  ggplot(aes(x = detection, y = visit))+
+  geom_point(size = 2)+
+  theme_classic()+
+  xlab("Time to first detection (hours)")+
+  ylab("Time to first visit (hours)")+
+  geom_smooth(method = "lm")
+```
+
+If anything, even more straightforward!
+
+Do later-detected carcasses take longer to be visited after detection?
+```{r}
+firsts %>%
+  filter(detection < maxTime, latency > 0) %>%
+  filter(!is.na(detection) & !is.na(visit)) %>%
+  ggplot(aes(x = detection, y = latency))+
+  geom_point(size = 2)+
+  theme_classic()+
+  ylab("Visit latency (hours)")+
+  xlab("Time to first detection (hours)")+
+  geom_smooth(method = "lm")
+```
+
+No relationship here. Later-detected carcasses don't take longer to be visited once they are detected. That said, the sample size is really small--need more data.
+
+### Accumulation curves: birds at carcasses
+
+Group by carcass and individual to get each bird's first visit.
+```{r}
+firstVisits <- allCarcasses %>%
   group_by(eventID, trackId) %>%
   filter(visit == TRUE) %>%
   arrange(timestamp, .by_group = TRUE) %>%
   slice(1) 
 
-head(df)
-
-df <- df %>%
+firstVisits <- firstVisits %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = T) %>%
-  mutate(nFirstVisits = 1:n())
+  mutate(nFirstVisits = 1:n()) # how many individual vultures visited the carcass?
+```
 
-# Make some curves
-df %>%
+Plot accumulation curves
+```{r}
+# Absolute
+firstVisits %>%
   ggplot(aes(x = hoursSinceCarcassPlaced, y = nFirstVisits, 
-             col = as.factor(eventID)))+       geom_line()+
+             col = as.factor(eventID)))+       
+  geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
   ylab("Number of unique vultures that have visited")+
   xlab("Time since carcass placement (hours)")
 
-# Aha, this isn't informative because it includes a bunch of days.
-# We need the time extent to be really long because it needs to allow for a long period of time between placement and first detection. But that's not actually the x axis. Need to be plotting time since first overall visit detection vs. # of vultures that have made first visits.
-head(df)
-
-df <- df %>%
+# Relative
+firstVisits <- firstVisits %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = TRUE) %>%
   mutate(timeSinceFirstVisit = timestamp-timestamp[1])
 
-df %>%
+firstVisits %>%
   filter(as.numeric(timeSinceFirstVisit)/3600 < maxTime) %>%
-  ggplot(aes(x = as.numeric(timeSinceFirstVisit)/3600, y = nFirstVisits, col = as.factor(eventID)))+       
+  ggplot(aes(x = as.numeric(timeSinceFirstVisit)/3600, y = nFirstVisits, 
+             col = as.factor(eventID)))+       
   geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
