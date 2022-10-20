@@ -22,6 +22,7 @@ library(tidyverse)
 library(sf)
 library(gganimate)
 library(rnaturalearth)
+library(gifski)
 ```
 
 ```{r}
@@ -217,7 +218,7 @@ eventsDat <- map(eventsList, ~datMasked %>%
                    mutate(hoursSinceCarcassPlaced = as.numeric(timestamp - .x$datetime[1], units = "hours")))
 
 eventsDat <- map2(eventsDat, eventsList, ~{.x %>%
-                    mutate(kmFromCarcass = as.numeric(sf::st_distance(., .y))/1000)})
+    mutate(kmFromCarcass = as.numeric(sf::st_distance(., .y))/1000)})
 
 # download elevation rasters for points within 3km of each feeding event
 eventsDat3km <- map(eventsDat, ~.x %>% filter(kmFromCarcass < 3))
@@ -514,61 +515,68 @@ firstVisits %>%
 
 ## ANIMATION
 I'm going to be following this tutorial: https://hansenjohnson.org/post/animate-movement-in-r/
+Make an animation for a single carcass over a few days. I'm going to use feeding event 36, since it seems relatively simple.
 
 ### STEP 1: 
 ```{r}
 # get basemap data
 bg = ne_countries(country = c("israel", "palestine"), returnclass = "sf")
 
-# take a look at our data
-head(datMasked)
-
+# eventsDat already excludes individuals outside of Israel, so I'm going to just pull from eventsDat.
 # simplify the data
-datMaskedSimple <- datMasked %>%
-  dplyr::select(trackId, timestamp, ground_speed, location_lat, location_long)
-
-head(datMaskedSimple)
+simple <- eventsDat[[36]] %>%
+  dplyr::select(trackId, ground_speed, location_lat, location_long, hoursSinceCarcassPlaced, kmFromCarcass, height_above_ground, detection, visit)
 ```
+
 ### STEP 2: Process the data
 ```{r}
 # For the animation to work, we have to have these fixes taken at regular intervals. That also means we have to fill in the blank intervals.
 
 # For now, I'm going to aggregate the fixes to every hour. Eventually might want to do every minute (we definitely don't need the seconds).
-hours <- datMaskedSimple %>%
-  mutate(hour = lubridate::floor_date(timestamp, unit = "hours"))
+hours <- simple %>%
+  mutate(hour = floor(hoursSinceCarcassPlaced))
 
 # compute hourly average positions and speeds
 hours <- hours %>%
-  dplyr::select(-timestamp) %>%
   sf::st_drop_geometry() %>%
   group_by(trackId, hour) %>%
-  mutate(lat = mean(location_lat),
-         long = mean(location_long),
-         speed = mean(ground_speed)) %>%
-  dplyr::select(trackId, hour, lat, long, speed) %>%
+  summarize(lat = mean(location_lat, na.rm = T),
+            long = mean(location_long, na.rm = T),
+            speed = mean(ground_speed, na.rm = T),
+            dist = mean(kmFromCarcass, na.rm = T)) %>%
+  ungroup() %>%
   distinct()
 
 # create 'ideal' data with all combinations of data
 ideal = expand_grid(
   trackId = unique(hours$trackId),
-  hour = seq(from = min(hours$hour), to = max(hours$hour), by = "hour")
+  hour = seq(from = min(hours$hour), to = max(hours$hour))
 )
 
 # create complete dataset
-df_all <- left_join(ideal, hours)
+df_all <- left_join(ideal, hours) %>%
+  arrange(trackId, hour)
+
+# fill in missing data so that the birds stay in place instead of disappearing
+df_all <- df_all %>%
+  mutate(filled = ifelse(is.na(lat) | is.na(long), T, F)) %>%
+  group_by(trackId) %>%
+  arrange(hour, .by_group = T) %>%
+  fill(c(lat, long, speed, dist), .direction = "down") %>%
+  ungroup()
+df_all
+
+# Any distances > 20km, set to NA
+df_all$lat[df_all$dist > 20] <- NA
+df_all$long[df_all$dist > 20] <- NA
+df_all$dist[df_all$dist > 20] <- NA
+df_all
 ```
 
 ### STEP 3: Make the plot
 ```{r}
-
-# To make this more digestible, I'm going to start with just a few days.
-early <- as.POSIXct("2022-10-01 00:00:00")
-
-testData <- df_all %>%
-  filter(hour > early) %>%
-  group_by(trackId) %>%
-  mutate(next_long = lead(long),
-         next_lat = lead(lat))
+# How many unique vultures?
+length(unique(df_all$trackId)) # 27!
 
 p <- ggplot()+
   geom_sf(data = bg)+
@@ -576,13 +584,13 @@ p <- ggplot()+
            ylim = c(30, 32), 
            expand = FALSE)+
   # lines and points
-  geom_path(data = testData, 
-            aes(x = long, y = lat, group = trackId, color = trackId), 
+  geom_path(data = df_all, 
+            aes(x = long, y = lat, group = trackId, color = dist), 
             alpha = 0.3, size = 0.5)+
-  geom_point(data = testData, 
-             aes(x = long, y = lat, group = trackId, color = trackId),
+  geom_point(data = df_all, 
+             aes(x = long, y = lat, group = trackId, color = dist),
              alpha = 0.7, size = 1)+
-  scale_color_viridis_d(option = "inferno")+
+  scale_color_viridis_c(option = "inferno")+
   labs(x = NULL, y = NULL)+
   theme_dark()+
   theme(panel.grid = element_blank(),
@@ -599,6 +607,7 @@ anim <- p +
   ggtitle("Hour: {frame_along}")
 
 gganimate::animate(anim, nframes = length(unique(testData$hour)), fps = 10)
+gganimate::anim_save("data/carcassAnimation.gif", anim)
 ```
 
 Okay, I would have to tweak this animation a lot more in order to really show them arriving at a carcass, I think.
