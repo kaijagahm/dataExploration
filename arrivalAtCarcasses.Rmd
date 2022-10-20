@@ -20,6 +20,8 @@ source("bboxFromRad.R")
 library(units)
 library(tidyverse)
 library(sf)
+library(gganimate)
+library(rnaturalearth)
 ```
 
 ```{r}
