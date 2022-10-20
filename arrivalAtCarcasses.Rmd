@@ -226,7 +226,7 @@ elevRasters <- map(eventsDat3km, ~{
   if(nrow(.x) == 0){
     return(NULL)
   }else{
-    elev <- elevatr::get_elev_raster(.x, z = 12)
+    elev <- elevatr::get_elev_raster(.x, z = 10)
     return(elev)
   }
 })
@@ -252,7 +252,7 @@ eventsDat <- map(eventsDat, sf::st_drop_geometry)
 # Now we can use this to make the same plot for each feeding event, limiting it to a certain radius
 # maxTime plots
 plotsMax <- map2(eventsDat, eventsList, ~{
-  p <- .x %>%
+  .x %>%
     ggplot()+
     geom_point(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
     geom_line(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
@@ -260,16 +260,36 @@ plotsMax <- map2(eventsDat, eventsList, ~{
     theme_minimal()+
     ylim(0, 5)+
     theme(legend.position = "none")
-  return(p)
 })
 
 suppressWarnings(walk(plotsMax, print)) # have to suppress warnings because a lot of data will be cut off and ggplot will get loud about it. And no, I can't just filter the data beforehand, because then geom_line will join the points together instead of running them off the page. Trust me, I've throught this one through.
+
+# Based on looking at this, pick just a few feeding events to view. This will make the rest of the code run faster.
+toView <- c(7, 9, 11, 21, 25, 36)
+suppressWarnings(walk2(plotsMax[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
 ```
+
+Same plots, but colored by elevation above the ground instead of by individual vulture:
+```{r}
+plotsElev <- map2(eventsDat, eventsList, ~{
+  .x %>%
+    ggplot()+
+    geom_line(aes(x = timestamp, y = kmFromCarcass, group = trackId), alpha = 0.3)+
+    geom_point(aes(x = timestamp, y = kmFromCarcass, col = height_above_ground))+
+    scale_color_viridis_c()+
+    geom_vline(aes(xintercept = .y$datetime[1]))+
+    theme_minimal()+
+    ylim(0, 5)
+})
+
+suppressWarnings(walk2(plotsElev[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
+```
+
 
 ```{r}
 # 48 hour plots
 plots48 <- map2(eventsDat, eventsList, ~{
-  p <- .x %>%
+  .x %>%
     filter(hoursSinceCarcassPlaced < 48) %>%
     ggplot()+
     geom_point(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
@@ -278,16 +298,15 @@ plots48 <- map2(eventsDat, eventsList, ~{
     theme_minimal()+
     ylim(0, 5)+
     theme(legend.position = "none")
-  return(p)
 })
 
-suppressWarnings(walk(plots48, print))
+suppressWarnings(walk2(plots48[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
 ```
 
 ```{r}
 # 24 hour plots
 plots24 <- map2(eventsDat, eventsList, ~{
-  p <- .x %>%
+  .x %>%
     filter(hoursSinceCarcassPlaced < 24) %>%
     ggplot()+
     geom_point(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
@@ -296,11 +315,11 @@ plots24 <- map2(eventsDat, eventsList, ~{
     theme_minimal()+
     ylim(0, 5)+
     theme(legend.position = "none")
-  return(p)
 })
 
-suppressWarnings(walk(plots24, print))
+suppressWarnings(walk2(plots24[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
 ```
+
 Hourly averages:
 
 ```{r}
@@ -314,7 +333,7 @@ hourlyAvgs <- map(eventsDat, ~{.x %>%
 ```{r}
 # 48 hour plots with hourly average distances
 plots48_hourly <- map2(hourlyAvgs, eventsList, ~{
-  p <- .x %>%
+  .x %>%
     filter(hour < 48) %>%
     ggplot()+
     geom_point(aes(x = hour, y = kmFromCarcassHour, col = trackId))+
@@ -324,10 +343,9 @@ plots48_hourly <- map2(hourlyAvgs, eventsList, ~{
     ylim(0, 5)+
     theme(legend.position = "none")+
     ggtitle(paste0("Carcass deposited: ", .y$datetime))
-  return(p)
 })
 
-suppressWarnings(walk(plots48_hourly, print))
+suppressWarnings(walk2(plots48_hourly[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
 ```
 
 ### Detections and arrivals
