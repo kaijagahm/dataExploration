@@ -235,8 +235,8 @@ feedEvents %>%
 
 # In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass.
 # Filter the data to just get the data 2 hours before up to 24*4 = 96 hours later than the feeding time.
-maxTimeWords <- "96 hours"
-maxTime <- 96
+maxTimeWords <- "72 hours"
+maxTime <- 72
 nToTest <- 5
 thisEvent <- datMasked %>%
   filter(timestamp > feedEvents$datetime[nToTest] - lubridate::as.duration("2 hours") & timestamp < feedEvents$datetime[nToTest] + lubridate::as.duration(maxTimeWords))
@@ -267,14 +267,15 @@ eventsList <- feedEvents %>%
 length(eventsList)
 
 eventsDat <- map(eventsList, ~datMasked %>%
+                   # from 2 hours before the carcass was placed to maxTime hours after
                    filter(timestamp > .x$datetime[1]-lubridate::as.duration("2 hours") & timestamp < .x$datetime[1] + lubridate::as.duration(maxTimeWords)) %>%
                    mutate(hoursSinceCarcassPlaced = as.numeric(timestamp - .x$datetime[1], units = "hours")))
 
-eventsDat <- map2(eventsDat, eventsList, ~.x %>%
-                    mutate(distanceFromCarcass_km = as.numeric(sf::st_distance(., .y))/1000))
+eventsDat <- map2(eventsDat, eventsList, ~{.x %>%
+                    mutate(kmFromCarcass = as.numeric(sf::st_distance(., .y))/1000)})
 
 # download elevation rasters for points within 3km of each feeding event
-eventsDat3km <- map(eventsDat, ~.x %>% filter(distanceFromCarcass < 3))
+eventsDat3km <- map(eventsDat, ~.x %>% filter(kmFromCarcass < 3))
 
 elevRasters <- map(eventsDat3km, ~{
   if(nrow(.x) == 0){
@@ -285,7 +286,7 @@ elevRasters <- map(eventsDat3km, ~{
   }
 })
 
-# add elevation information to data frames, but only for the points within 3km of the feeding site.
+# add elevation information to data frames, only for the points within 3km of the feeding site.
 eventsDat <- map2(eventsDat, elevRasters, ~{
   if(is.null(.y)){
     .x <- .x %>%
@@ -300,20 +301,88 @@ eventsDat <- map2(eventsDat, elevRasters, ~{
   }
 })
 
+# Remove geometry information so the data are easier to work with
+eventsDat <- map(eventsDat, sf::st_drop_geometry)
+
 # Now we can use this to make the same plot for each feeding event, limiting it to a certain radius
-plots <- map2(eventsDat, eventsList, ~{
+# maxTime plots
+plotsMax <- map2(eventsDat, eventsList, ~{
   p <- .x %>%
     ggplot()+
-    geom_point(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
-    geom_line(aes(x = timestamp, y = distanceFromCarcass, col = trackId))+
+    geom_point(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
+    geom_line(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
     geom_vline(aes(xintercept = .y$datetime[1]))+
     theme_minimal()+
-    ylim(0, 20)+
+    ylim(0, 5)+
     theme(legend.position = "none")
   return(p)
 })
 
-suppressWarnings(walk(plots, print))
+suppressWarnings(walk(plotsMax, print)) # have to suppress warnings because a lot of data will be cut off and ggplot will get loud about it. And no, I can't just filter the data beforehand, because then geom_line will join the points together instead of running them off the page. Trust me, I've throught this one through.
+```
+
+```{r}
+# 48 hour plots
+plots48 <- map2(eventsDat, eventsList, ~{
+  p <- .x %>%
+    filter(hoursSinceCarcassPlaced < 48) %>%
+    ggplot()+
+    geom_point(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
+    geom_line(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
+    geom_vline(aes(xintercept = .y$datetime[1]))+
+    theme_minimal()+
+    ylim(0, 5)+
+    theme(legend.position = "none")
+  return(p)
+})
+
+suppressWarnings(walk(plots48, print))
+```
+
+```{r}
+# 24 hour plots
+plots24 <- map2(eventsDat, eventsList, ~{
+  p <- .x %>%
+    filter(hoursSinceCarcassPlaced < 24) %>%
+    ggplot()+
+    geom_point(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
+    geom_line(aes(x = timestamp, y = kmFromCarcass, col = trackId))+
+    geom_vline(aes(xintercept = .y$datetime[1]))+
+    theme_minimal()+
+    ylim(0, 5)+
+    theme(legend.position = "none")
+  return(p)
+})
+
+suppressWarnings(walk(plots24, print))
+```
+Hourly averages:
+
+```{r}
+hourlyAvgs <- map(eventsDat, ~{.x %>%
+    mutate(hour = floor(hoursSinceCarcassPlaced)) %>%
+    group_by(trackId, hour) %>%
+    summarize(kmFromCarcassHour = mean(kmFromCarcass, na.rm = T), .groups = "keep") %>%
+    ungroup()})
+```
+
+```{r}
+# 48 hour plots with hourly average distances
+plots48_hourly <- map2(hourlyAvgs, eventsList, ~{
+  p <- .x %>%
+    filter(hour < 48) %>%
+    ggplot()+
+    geom_point(aes(x = hour, y = kmFromCarcassHour, col = trackId))+
+    geom_line(aes(x = hour, y = kmFromCarcassHour, col = trackId))+
+    geom_vline(aes(xintercept = 0))+
+    theme_minimal()+
+    ylim(0, 5)+
+    theme(legend.position = "none")+
+    ggtitle(paste0("Carcass deposited: ", .y$datetime))
+  return(p)
+})
+
+suppressWarnings(walk(plots48_hourly, print))
 ```
 
 ### Detections and arrivals
@@ -323,24 +392,21 @@ suppressWarnings(walk(plots, print))
 Calculate detections and arrivals for each bird at each carcass.
 
 ```{r}
-eventsDat <- lapply(eventsDat, function(x){
-  x <- x %>%
-    mutate(detection = case_when(distanceFromCarcass < 1 & 
+eventsDat <- map(eventsDat, ~{.x %>%
+    mutate(detection = case_when(kmFromCarcass < 1 & 
                                    hoursSinceCarcassPlaced > 0  ~ TRUE,
                                  TRUE ~ FALSE),
-           visit = case_when(distanceFromCarcass < 0.25 & ground_speed < 5 & 
+           visit = case_when(kmFromCarcass < 0.25 & ground_speed < 5 & 
                                !is.na(height_above_ground) & height_above_ground < 10 &
-                               hoursSinceCarcassPlaced > 0 ~ 
-                               TRUE,
-                             TRUE ~ FALSE))
-})
+                               hoursSinceCarcassPlaced > 0 ~ TRUE,
+                             TRUE ~ FALSE))})
 ```
 
 ### Latency
 ```{r}
 allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
   as.data.frame() %>%
-  dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, geometry, hoursSinceCarcassPlaced, distanceFromCarcass, groundElev, height_above_ground, detection, visit)
+  dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, geometry, hoursSinceCarcassPlaced, kmFromCarcass, groundElev, height_above_ground, detection, visit)
 ```
 
 #### Time to first detection
@@ -466,7 +532,8 @@ df <- df %>%
 
 df %>%
   filter(as.numeric(timeSinceFirstVisit)/3600 < maxTime) %>%
-  ggplot(aes(x = as.numeric(timeSinceFirstVisit)/3600, y = nFirstVisits, col = as.factor(eventID)))+       geom_line()+
+  ggplot(aes(x = as.numeric(timeSinceFirstVisit)/3600, y = nFirstVisits, col = as.factor(eventID)))+       
+  geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
   ylab("Number of unique vultures that have visited")+
@@ -479,12 +546,12 @@ df %>%
 allCarcasses <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced > 0) %>%
   mutate(hour = lubridate::floor_date(timestamp, unit = "hour")) %>%
-  mutate(under1 = distanceFromCarcass < 1,
-         under5 = distanceFromCarcass < 5,
-         under10 = distanceFromCarcass < 10,
-         under50 = distanceFromCarcass < 50,
-         under100 = distanceFromCarcass < 100,
-         over100 = distanceFromCarcass > 100)
+  mutate(under1 = kmFromCarcass < 1,
+         under5 = kmFromCarcass < 5,
+         under10 = kmFromCarcass < 10,
+         under50 = kmFromCarcass < 50,
+         under100 = kmFromCarcass < 100,
+         over100 = kmFromCarcass > 100)
 
 summ <- allCarcasses %>%
   dplyr::select(eventID, trackId, hour, under1, under5, under10, under50, under100, over100) %>%
@@ -499,8 +566,9 @@ eventSumms <- summ %>%
   ungroup() %>%
   group_by(eventID) %>%
   group_split(.keep = T)
-plots <- lapply(eventSumms, function(x){
-  p <- x %>%
+
+plots <- map(eventSumms, ~{
+  p <- .x %>%
     mutate(thresh = factor(thresh, levels = c("under1", "under5", "under10", "under50", "under100", "over100"))) %>%
     ggplot(aes(x = hour, y = n, col = thresh))+
     geom_point()+
@@ -641,7 +709,7 @@ Okay, I would have to tweak this animation a lot more in order to really show th
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 visitOrders <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced <= 96) %>%
-  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, distanceFromCarcass, visit, visit, hour) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit, visit, hour) %>%
   distinct() %>%
   filter(visit == TRUE) %>%
   group_by(eventID) %>%
@@ -679,7 +747,7 @@ Now we can do the same thing for detections that are NOT visits
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 detectionOrders <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced <= 96) %>%
-  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, distanceFromCarcass, visit, detection, hour) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit, detection, hour) %>%
   distinct() %>%
   filter(detection == TRUE & visit == FALSE) %>%
   group_by(eventID) %>%
