@@ -369,7 +369,7 @@ eventsDat <- map(eventsDat, ~{.x %>%
 ```{r}
 allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
   as.data.frame() %>%
-  dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, geometry, hoursSinceCarcassPlaced, kmFromCarcass, groundElev, height_above_ground, detection, visit)
+  dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, hoursSinceCarcassPlaced, kmFromCarcass, groundElev, height_above_ground, detection, visit)
 ```
 
 #### Time to first detection
