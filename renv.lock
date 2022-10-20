@@ -675,6 +675,22 @@
         "sp"
       ]
     },
+    "gganimate": {
+      "Package": "gganimate",
+      "Version": "1.0.8",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "8e627464910e6bcf6ccb62b0bdbffa35",
+      "Requirements": [
+        "ggplot2",
+        "glue",
+        "progress",
+        "rlang",
+        "scales",
+        "stringi",
+        "tweenr"
+      ]
+    },
     "ggforce": {
       "Package": "ggforce",
       "Version": "0.4.1",
@@ -1496,6 +1512,17 @@
         "tinytex",
         "xfun",
         "yaml"
+      ]
+    },
+    "rnaturalearth": {
+      "Package": "rnaturalearth",
+      "Version": "0.1.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "946d1b43d7aba91dfa804f02302a5125",
+      "Requirements": [
+        "sf",
+        "sp"
       ]
     },
     "rstudioapi": {
