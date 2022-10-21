@@ -6,13 +6,12 @@ output: html_document
 editor_options: 
   markdown: 
     wrap: sentence
----
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 ```
 
-```{r}
+```{r include = F}
 library(tidyverse)
 library(vultureUtils)
 library(igraph)
@@ -41,7 +40,6 @@ Going to pick the individual with the longest run:
 
 ```{r}
 targetIndiv <- unique(datAnnot$trackId[datAnnot$longestRun == max(datAnnot$longestRun)])
-
 track <- datAnnot %>%
   filter(trackId == targetIndiv)
 
@@ -59,7 +57,7 @@ randomDay <- sample(1:length(trackDays), size = 1)
 In order for an analysis of speed and altitude to make any sense at all, we need to cross-reference these measurements with elevation data for Israel.
 We can obtain this using the `elevatr` package.
 
-```{r}
+```{r include = F}
 # Add sunrise and sunset information using suncalc
 ## first let's get the mean lat and long for the current track
 meanLat <- mean(track$location_lat)
@@ -73,7 +71,7 @@ track <- track %>%
 # Make it an sf object and add elevation
 trackSF <- track %>%
   sf::st_as_sf(., coords = c("location_long", "location_lat"), crs = "WGS84")
-elevs <- elevatr::get_elev_raster(trackSF, z = 12) 
+elevs <- elevatr::get_elev_raster(trackSF, z = 10) 
 trackSF$groundElev <- raster::extract(x = elevs, y = trackSF)
 trackSF <- trackSF %>%
   mutate(height_above_ground = height_above_msl - groundElev)
@@ -128,7 +126,7 @@ Read in the feeding event data (this is the most updated version we have; should
 
 #### Sunrise/sunset, day/night to datAnnot
 
-```{r}
+```{r include = F}
 # using the mean values of lat and long for this dataset, which may not be perfect but it's fairly decent.
 meanLat <- mean(datAnnot$location_lat)
 meanLong <- mean(datAnnot$location_long)
@@ -170,7 +168,7 @@ table(feedEvents$area)
 
 Now that we have that data, we critically need access to the feeding station location data so that we can match these carcass drops to lat/long.
 
-```{r}
+```{r include = F}
 feedingStations <- read.csv("data/feeding_station_south_coordinates.xlsx - Sheet1.csv")
 head(feedingStations)
 
@@ -381,8 +379,7 @@ eventsDat <- map(eventsDat, ~{.x %>%
 ```
 
 ### Latency
-
-```{r}
+```{r include = F}
 allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
   as.data.frame() %>%
   dplyr::select(eventID, ground_speed, height_above_msl, location_lat, location_long, timestamp, dateOnly, trackId, hoursSinceCarcassPlaced, kmFromCarcass, groundElev, height_above_ground, detection, visit)
@@ -538,9 +535,7 @@ firstVisits %>%
   ylab("Number of unique vultures that have visited")+
   xlab("Time since the first vulture first visited (hours)")
 ```
-
 ## ANIMATION
-
 I'm going to be following this tutorial: <https://hansenjohnson.org/post/animate-movement-in-r/> Make an animation for a single carcass over a few days.
 I'm going to use feeding event 36, since it seems relatively simple.
 
@@ -630,7 +625,6 @@ p
 ```
 
 ### STEP 4: Make the animation
-
 ```{r eval = FALSE}
 anim <- p + 
   transition_reveal(along = hour)+
@@ -692,8 +686,7 @@ detectionOrders_noRepeats <- detectionOrders %>%
 ```
 
 ### Compare visits vs. detections
-
-```{r}
+```{r include = F}
 # SANITY CHECK
 dfCombined <- bind_rows(detectionOrders_noRepeats, visitOrders_noRepeats) %>%
   pivot_wider(names_from = "type", names_prefix = "order_", values_from = "order", id_cols = c(trackId, eventID)) # important to join this way, not the opposite way
@@ -703,7 +696,9 @@ dfCombined %>%
 
 dfCombined %>%
   filter(is.na(order_visit)) # to be expected, there are some NA's in order_visit
+```
 
+```{r}
 # Does detection rank order correlate with visit rank order?
 dfCombined %>%
   ggplot(aes(x = order_detection, y = order_visit, col = factor(eventID)))+
