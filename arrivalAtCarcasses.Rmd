@@ -3,6 +3,9 @@ title: "Arrival At Carcasses"
 author: "Kaija Gahm"
 date: "2022-10-10"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: sentence
 ---
 
 ```{r setup, include=FALSE}
@@ -32,8 +35,10 @@ datAnnot <- feather::read_feather("data/datAnnot.feather")
 # Analyzing arrival order at carcasses
 
 ## IDENTIFY FEEDING EVENTS
+
 Let's move on to examining an individual's movement patterns to identify arrival at a carcass site.
 Going to pick the individual with the longest run:
+
 ```{r}
 targetIndiv <- unique(datAnnot$trackId[datAnnot$longestRun == max(datAnnot$longestRun)])
 
@@ -50,7 +55,9 @@ randomDay <- sample(1:length(trackDays), size = 1)
 ```
 
 ### Relative altitude
-In order for an analysis of speed and altitude to make any sense at all, we need to cross-reference these measurements with elevation data for Israel. We can obtain this using the `elevatr` package.
+
+In order for an analysis of speed and altitude to make any sense at all, we need to cross-reference these measurements with elevation data for Israel.
+We can obtain this using the `elevatr` package.
 
 ```{r}
 # Add sunrise and sunset information using suncalc
@@ -82,7 +89,9 @@ trackDaysSF <- trackSF %>%
 ```
 
 #### Speed/relative altitude plots
+
 Now let's re-do the speed and altitude plots, using altitude above ground:
+
 ```{r}
 # create rectangles to add to ggplot, assuming the dataset has the "sunrise" and "sunset" and "timestamp" columns.
 sunriseSunsetBars <- list(geom_rect(aes(xmin = min(timestamp),
@@ -114,9 +123,11 @@ altitude
 ## KNOWN FEEDING EVENTS
 
 ### Feeding event data
+
 Read in the feeding event data (this is the most updated version we have; should work on getting more info from more recent feeding events.)
 
 #### Sunrise/sunset, day/night to datAnnot
+
 ```{r}
 # using the mean values of lat and long for this dataset, which may not be perfect but it's fairly decent.
 meanLat <- mean(datAnnot$location_lat)
@@ -156,6 +167,7 @@ table(feedEvents$area)
 ```
 
 ### Feeding station locations
+
 Now that we have that data, we critically need access to the feeding station location data so that we can match these carcass drops to lat/long.
 
 ```{r}
@@ -195,9 +207,12 @@ datMasked <- vultureUtils::maskData(dataset = datAnnot, mask = mask, longCol = "
 
 ### Distance from carcass vs. time
 
-In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass. So that's 96 hours.
+In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this.
+To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass.
+So that's 96 hours.
 
-I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it. Duh.
+I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it.
+Duh.
 
 ```{r}
 # Set some parameters for time lengths
@@ -271,6 +286,7 @@ suppressWarnings(walk2(plotsMax[toView], toView, ~print(.x + ggtitle(paste("Feed
 ```
 
 Same plots, but colored by elevation above the ground instead of by individual vulture:
+
 ```{r}
 plotsElev <- map2(eventsDat, eventsList, ~{
   .x %>%
@@ -285,7 +301,6 @@ plotsElev <- map2(eventsDat, eventsList, ~{
 
 suppressWarnings(walk2(plotsElev[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
 ```
-
 
 ```{r}
 # 48 hour plots
@@ -351,9 +366,8 @@ suppressWarnings(walk2(plots48_hourly[toView], toView, ~print(.x + ggtitle(paste
 
 ### Detections and arrivals
 
-1. Define "detection" as a vulture passing within 1km of the site, regardless of speed or altitude.
-2. Define "arrival" as being within 0.25km with a ground speed < 5m/s and an elevation < 10m
-Calculate detections and arrivals for each bird at each carcass.
+1.  Define "detection" as a vulture passing within 1km of the site, regardless of speed or altitude.
+2.  Define "arrival" as being within 0.25km with a ground speed \< 5m/s and an elevation \< 10m Calculate detections and arrivals for each bird at each carcass.
 
 ```{r}
 eventsDat <- map(eventsDat, ~{.x %>%
@@ -367,6 +381,7 @@ eventsDat <- map(eventsDat, ~{.x %>%
 ```
 
 ### Latency
+
 ```{r}
 allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
   as.data.frame() %>%
@@ -374,6 +389,7 @@ allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
 ```
 
 #### Time to first detection
+
 ```{r}
 firstDetections <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced > 0 & hoursSinceCarcassPlaced < maxTime, 
@@ -396,6 +412,7 @@ firstDetections %>%
 ```
 
 #### Time to first visit
+
 ```{r}
 firstVisits <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced > 0 & hoursSinceCarcassPlaced < maxTime, 
@@ -418,6 +435,7 @@ firstVisits %>%
 ```
 
 #### Detections and visits
+
 ```{r}
 firsts <- firstDetections %>%
   mutate(type = "detection") %>%
@@ -427,7 +445,9 @@ firsts <- firstDetections %>%
   mutate(latency = visit-detection)
 ```
 
-Is there a relationship between first detection and first visit? This should be intuitively obvious.
+Is there a relationship between first detection and first visit?
+This should be intuitively obvious.
+
 ```{r}
 firsts %>%
   filter(detection < maxTime) %>%
@@ -439,6 +459,7 @@ firsts %>%
 ```
 
 What is the relationship when we remove the 0 latencies?
+
 ```{r}
 firsts %>%
   filter(detection < maxTime, latency > 0) %>%
@@ -454,6 +475,7 @@ firsts %>%
 If anything, even more straightforward!
 
 Do later-detected carcasses take longer to be visited after detection?
+
 ```{r}
 firsts %>%
   filter(detection < maxTime, latency > 0) %>%
@@ -466,11 +488,14 @@ firsts %>%
   geom_smooth(method = "lm")
 ```
 
-No relationship here. Later-detected carcasses don't take longer to be visited once they are detected. That said, the sample size is really small--need more data.
+No relationship here.
+Later-detected carcasses don't take longer to be visited once they are detected.
+That said, the sample size is really small--need more data.
 
 ### Accumulation curves: birds at carcasses
 
 Group by carcass and individual to get each bird's first visit.
+
 ```{r}
 firstVisits <- allCarcasses %>%
   group_by(eventID, trackId) %>%
@@ -485,6 +510,7 @@ firstVisits <- firstVisits %>%
 ```
 
 Plot accumulation curves
+
 ```{r}
 # Absolute
 firstVisits %>%
@@ -514,10 +540,12 @@ firstVisits %>%
 ```
 
 ## ANIMATION
-I'm going to be following this tutorial: https://hansenjohnson.org/post/animate-movement-in-r/
-Make an animation for a single carcass over a few days. I'm going to use feeding event 36, since it seems relatively simple.
 
-### STEP 1: 
+I'm going to be following this tutorial: <https://hansenjohnson.org/post/animate-movement-in-r/> Make an animation for a single carcass over a few days.
+I'm going to use feeding event 36, since it seems relatively simple.
+
+### STEP 1:
+
 ```{r}
 # get basemap data
 bg = ne_countries(country = c("israel", "palestine"), returnclass = "sf")
@@ -530,6 +558,7 @@ simple <- eventsDat[[whichEvent]] %>%
 ```
 
 ### STEP 2: Process the data
+
 ```{r}
 # For the animation to work, we have to have these fixes taken at regular intervals. That also means we have to fill in the blank intervals.
 
@@ -574,6 +603,7 @@ df_all$dist[df_all$dist > 20] <- NA
 ```
 
 ### STEP 3: Make the plot
+
 ```{r}
 carcassSite <- eventsList %>% pluck(whichEvent) %>%
   dplyr::select(lat, long) %>%
@@ -600,6 +630,7 @@ p
 ```
 
 ### STEP 4: Make the animation
+
 ```{r eval = FALSE}
 anim <- p + 
   transition_reveal(along = hour)+
@@ -613,7 +644,9 @@ gganimate::anim_save("data/carcassAnimation.gif", anim)
 Okay, I would have to tweak this animation a lot more in order to really show them arriving at a carcass, I think.
 
 ## ARRIVAL ORDER at known carcasses
+
 ### Visits
+
 ```{r}
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 visitOrders <- allCarcasses %>%
@@ -635,7 +668,9 @@ visitOrders_noRepeats <- visitOrders %>%
 ```
 
 ### Detections
+
 Now we can do the same thing for detections (including detections that are also visits--they're nested)
+
 ```{r}
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 detectionOrders <- allCarcasses %>%
@@ -657,6 +692,7 @@ detectionOrders_noRepeats <- detectionOrders %>%
 ```
 
 ### Compare visits vs. detections
+
 ```{r}
 # SANITY CHECK
 dfCombined <- bind_rows(detectionOrders_noRepeats, visitOrders_noRepeats) %>%
@@ -679,9 +715,40 @@ dfCombined %>%
   theme(legend.position = "none")
 ```
 
-There is usually a relationship between detections and visits--i.e. those that detect the carcass later are also later to visit. But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
+There is usually a relationship between detections and visits--i.e.
+those that detect the carcass later are also later to visit.
+But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
+
+## DEFINE TIME SCALES FOR BEHAVIORAL CONTEXTS
+
+What is the time scale over which we can make a network such that 90% of the individuals that fed at the carcass are included in the largest connected component?
+
+The context here is that if we want to run a diffusion analysis, we have to determine which network to run it ON. The actual running of the procedure is pretty straightforward. Different timescales may be meaningful for information transmission in different behavioral contexts. So let's determine which timescale is meaningful for each one. 
+
+Pseudocode: 
+1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
+  - Defining"visit" same as above in the script (definition subject to change). 
+  - Defining `maxTime` same as above: right now it's `r maxTime` hours. 
+
+2. Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
+
+3. For each feeding event, obtain data for 2 months prior. 
+  - This seems like a tractable number of days to start with. Can increase it if need be. 
+
+4. Create daily roosting/feeding/flying networks for each feeding event. - Don't have code for roosting right now--will have to come back to that. 
+
+5. Define initial detection and initial visit date/time (IDD/IDDt, IVD/IVDt) for each carcass (date and time when the first vulture first visited the carcass). 
+
+6. Working backwards from the IVD, make vectors to assign daily networks to groups. 
+
+7. Using purrr::map2 and/or purrr::pmap, use those assignment vectors and the original list to aggregate the daily networks into more-than-daily networks.
+
+8. For each network, get a list of the individuals present in the largest connected component.
+
+9. ?? not sure about this step. Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
 
 ## NEXT STEPS:
-- Read the NBDA paper to figure out what information we need to assess info spread
-- Create networks to test alternative hypotheses
-- Follow NBDA procedures.
+
+-   Read the NBDA paper to figure out what information we need to assess info spread
+-   Create networks to test alternative hypotheses
+-   Follow NBDA procedures.
