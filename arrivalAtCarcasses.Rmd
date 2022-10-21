@@ -579,7 +579,6 @@ carcassSite <- eventsList %>% pluck(whichEvent) %>%
   dplyr::select(lat, long) %>%
   as.vector() %>% as.numeric()
 bbox <- bboxFromRad(lon = carcassSite[2], lat = carcassSite[1], kmDist = 20)
-
 p <- ggplot()+
   geom_sf()+
   coord_sf(xlim = bbox$xlims, 
@@ -587,11 +586,12 @@ p <- ggplot()+
            expand = FALSE)+
   # lines and points
   geom_path(data = df_all, 
-            aes(x = long, y = lat, group = trackId, color = dist), 
+            aes(x = long, y = lat, group = trackId, color = trackId), 
             alpha = 0.3, size = 0.5)+
   geom_point(data = df_all, 
-             aes(x = long, y = lat, group = trackId, color = dist),
+             aes(x = long, y = lat, group = trackId, color = trackId),
              alpha = 0.7, size = 2)+
+  #scale_color_manual(values = colors)+
   labs(x = NULL, y = NULL)+
   theme(panel.grid = element_blank(),
         legend.position = "none")+
@@ -606,8 +606,7 @@ anim <- p +
   ease_aes('linear')+
   ggtitle("Hour: {frame_along}")
 
-frames <- length(unique(df_all$hour))
-gganimate::animate(anim, nframes = frames, fps = 10)
+gganimate::animate(anim, nframes = length(unique(df_all$hour)), fps = 10) # XXX error here--come back to this.
 gganimate::anim_save("data/carcassAnimation.gif", anim)
 ```
 
@@ -619,36 +618,18 @@ Okay, I would have to tweak this animation a lot more in order to really show th
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 visitOrders <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced <= 96) %>%
-  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit, visit, hour) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit, visit) %>%
   distinct() %>%
   filter(visit == TRUE) %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = T) %>%
   group_split(.keep = T) %>%
-  lapply(., function(x){
-    x %>% dplyr::select(trackId, eventID) %>%
-      distinct()
-  })
+  map_dfr(~.x %>% select(trackId, eventID))
 
 # Remove repeated elements in a row
-visitOrders_noRepeats <- visitOrders%>%
-  lapply(., function(x){
-    data.frame(trackId = rle(x$trackId)$values,
-               eventID = x$eventID[1])
-  })
-
-# Get only firsts
-visitOrders_firstOnly <- visitOrders_noRepeats %>%
-  lapply(., function(x){
-    distinct(x)
-  })
-
-# Collapse into a data frame
-visitOrdersDF <- lapply(visitOrders_firstOnly, function(x){
-  x %>% mutate(visitOrder = 1:nrow(.))
-}) %>%
-  data.table::rbindlist() %>%
-  as.data.frame()
+visitOrders_noRepeats <- visitOrders %>%
+  group_by(eventID) %>%
+  distinct()
 ```
 
 ### Detections
