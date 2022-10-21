@@ -618,7 +618,7 @@ Okay, I would have to tweak this animation a lot more in order to really show th
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 visitOrders <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced <= 96) %>%
-  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit, visit) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit) %>%
   distinct() %>%
   filter(visit == TRUE) %>%
   group_by(eventID) %>%
@@ -629,61 +629,48 @@ visitOrders <- allCarcasses %>%
 # Remove repeated elements in a row
 visitOrders_noRepeats <- visitOrders %>%
   group_by(eventID) %>%
-  distinct()
+  distinct() %>%
+  mutate(order = 1:n(),
+         type = "visit")
 ```
 
 ### Detections
-Now we can do the same thing for detections that are NOT visits
+Now we can do the same thing for detections (including detections that are also visits--they're nested)
 ```{r}
 # Get just an ordered list of who detected the carcass first in the first 96 hours since the carcass was deposited
 detectionOrders <- allCarcasses %>%
   filter(hoursSinceCarcassPlaced <= 96) %>%
-  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, visit, detection, hour) %>%
+  dplyr::select(eventID, trackId, timestamp, hoursSinceCarcassPlaced, kmFromCarcass, detection, visit) %>%
   distinct() %>%
-  filter(detection == TRUE & visit == FALSE) %>%
+  filter(detection == TRUE) %>%
   group_by(eventID) %>%
   arrange(timestamp, .by_group = T) %>%
   group_split(.keep = T) %>%
-  lapply(., function(x){
-    x %>% dplyr::select(trackId, eventID) %>%
-      distinct()
-  })
+  map_dfr(~.x %>% select(trackId, eventID))
 
 # Remove repeated elements in a row
-detectionOrders_noRepeats <- detectionOrders%>%
-  lapply(., function(x){
-    data.frame(trackId = rle(x$trackId)$values,
-               eventID = x$eventID[1])
-  })
-
-# Get only firsts
-detectionOrders_firstOnly <- detectionOrders_noRepeats %>%
-  lapply(., function(x){
-    distinct(x)
-  })
-
-# Collapse into a data frame
-detectionOrdersDF <- lapply(detectionOrders_firstOnly, function(x){
-  x %>% mutate(detectionOrder = 1:nrow(.))
-}) %>%
-  data.table::rbindlist() %>%
-  as.data.frame()
+detectionOrders_noRepeats <- detectionOrders %>%
+  group_by(eventID) %>%
+  distinct() %>%
+  mutate(order = 1:n(),
+         type = "detection")
 ```
 
 ### Compare visits vs. detections
 ```{r}
 # SANITY CHECK
-dfCombined <- left_join(detectionOrdersDF, visitOrdersDF) # important to do it this way, not visit, detection, because visits are nested within detections.
+dfCombined <- bind_rows(detectionOrders_noRepeats, visitOrders_noRepeats) %>%
+  pivot_wider(names_from = "type", names_prefix = "order_", values_from = "order", id_cols = c(trackId, eventID)) # important to join this way, not the opposite way
 
 dfCombined %>%
-  filter(is.na(detectionOrder)) # good, there are no NA's in detectionOrder
+  filter(is.na(order_detection)) # good, there are no NA's in order_detection
 
 dfCombined %>%
-  filter(is.na(visitOrder)) # to be expected, there are some NA's in visitOrder.
+  filter(is.na(order_visit)) # to be expected, there are some NA's in order_visit
 
 # Does detection rank order correlate with visit rank order?
 dfCombined %>%
-  ggplot(aes(x = detectionOrder, y = visitOrder, col = factor(eventID)))+
+  ggplot(aes(x = order_detection, y = order_visit, col = factor(eventID)))+
   geom_point(alpha = 0.5, size = 2)+
   geom_smooth(method = "lm", se = F, size = 0.5)+
   theme_minimal()+
