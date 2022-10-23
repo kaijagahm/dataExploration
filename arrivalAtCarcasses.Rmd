@@ -284,13 +284,17 @@ Same plots, but colored by elevation above the ground instead of by individual v
 ```{r}
 plotsElev <- map2(eventsDat, eventsList, ~{
   .x %>%
+    mutate("Height above \nground (m)" = height_above_ground) %>%
     ggplot()+
     geom_line(aes(x = timestamp, y = kmFromCarcass, group = trackId), alpha = 0.3)+
-    geom_point(aes(x = timestamp, y = kmFromCarcass, col = height_above_ground))+
+    geom_point(aes(x = timestamp, y = kmFromCarcass, col = `Height above \nground (m)`))+
     scale_color_viridis_c()+
     geom_vline(aes(xintercept = .y$datetime[1]))+
     theme_minimal()+
-    ylim(0, 5)
+    ylim(0, 5)+
+    ylab("Distance from carcass (km)")+
+    xlab("")+
+    theme(text = element_text(size = 18))
 })
 
 suppressWarnings(walk2(plotsElev[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
@@ -402,7 +406,8 @@ firstDetections %>%
   geom_vline(aes(xintercept = 96), col = "darkblue", alpha = 0.1)+
   theme_classic()+
   ylab("Frequency")+
-  xlab("Time to first detection (hours)")
+  xlab("Time to first detection (hours)")+
+  theme(text = element_text(size = 20))
 ```
 
 #### Time to first visit
@@ -425,7 +430,8 @@ firstVisits %>%
   geom_vline(aes(xintercept = 96), col = "darkred", alpha = 0.1)+
   theme_classic()+
   ylab("Frequency")+
-  xlab("Time to first visit (hours)")
+  xlab("Time to first visit (hours)")+
+  theme(text = element_text(size = 20))
 ```
 
 #### Detections and visits
@@ -437,6 +443,27 @@ firsts <- firstDetections %>%
   dplyr::select(eventID, hoursSinceCarcassPlaced, type) %>%
   pivot_wider(id_cols = eventID, names_from = type, values_from = hoursSinceCarcassPlaced) %>%
   mutate(latency = visit-detection)
+```
+
+```{r}
+firsts
+firstsLong <- firsts %>%
+  pivot_longer(cols = c(detection, visit), names_to = "type", values_to = "hours")
+firstsLong
+  
+firstsLong %>%
+  ggplot(aes(x = hours, col = type, fill = type))+
+  geom_density(alpha = 0.5)+
+  geom_vline(aes(xintercept = 24), alpha = 0.7)+
+  geom_vline(aes(xintercept = 48), alpha = 0.5)+
+  geom_vline(aes(xintercept = 72), alpha = 0.3)+
+  geom_vline(aes(xintercept = 96), alpha = 0.1)+
+  scale_color_manual(name = "", values = c("lightblue", "#FCA18E"))+
+  scale_fill_manual(name = "", values = c("lightblue", "#FCA18E"))+
+  theme_classic()+
+  ylab("Frequency")+
+  xlab("Time to first visit (hours)")+
+  theme(text = element_text(size = 20))
 ```
 
 Is there a relationship between first detection and first visit? This should be intuitively obvious.
@@ -462,7 +489,8 @@ firsts %>%
   theme_classic()+
   xlab("Time to first detection (hours)")+
   ylab("Time to first visit (hours)")+
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm")+
+  theme(text = element_text(size = 20))
 ```
 
 If anything, even more straightforward!
@@ -478,7 +506,8 @@ firsts %>%
   theme_classic()+
   ylab("Visit latency (hours)")+
   xlab("Time to first detection (hours)")+
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm")+
+  theme(text = element_text(size = 20))
 ```
 
 No relationship here. Later-detected carcasses don't take longer to be visited once they are detected. That said, the sample size is really small--need more data.
@@ -510,8 +539,9 @@ firstVisits %>%
   geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
-  ylab("Number of unique vultures that have visited")+
-  xlab("Time since carcass placement (hours)")
+  ylab("# unique individuals")+
+  xlab("Time since carcass placement (hours)")+
+  theme(text = element_text(size = 18))
 
 # Relative
 firstVisits <- firstVisits %>%
@@ -526,8 +556,9 @@ firstVisits %>%
   geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
-  ylab("Number of unique vultures that have visited")+
-  xlab("Time since the first vulture first visited (hours)")
+  ylab("# unique individuals")+
+  xlab("Time since first visit (hours)")+
+  theme(text = element_text(size = 18))
 ```
 
 ## ANIMATION
@@ -704,7 +735,8 @@ dfCombined %>% # XXX COME BACK TO THIS--NEED TO FILTER OUT THE DETECTIONS THAT A
   theme_minimal()+
   ylab("Rank order (visits)")+
   xlab("Rank order (detections)")+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  theme(text = element_text(size = 20))
 ```
 
 There is usually a relationship between detections and visits--i.e. those that detect the carcass later are also later to visit. But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
