@@ -732,130 +732,142 @@ getIndivsInLCC <- function(graph){
 }
 #######################
 
-# For each feeding event:
-days <- 50
-daysBack <- seq(from = 1, to = days, by = floor(days/10))
-names(daysBack) <- as.character(daysBack)
-whichEvent <- 6
-dateTime <- eventsList[[whichEvent]]$datetime[1]
-
-# 1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
-# - Defining "visit" same as above in the script (definition subject to change). 
-# - Defining `maxTime` same as above: right now it's `r maxTime` hours.
-# 
-# 2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
-# Get participants
-if(whichEvent %in% visitOrders_noRepeats$eventID){
-  participants <- visitOrders_noRepeats %>%
+lccProportionsFunction <- function(whichEvent, days){
+  # create a named vector of daysBack numbers to use
+  daysBack <- seq(from = 1, to = days, by = floor(days/10))
+  names(daysBack) <- as.character(daysBack)
+  
+  # get the date and time of the feeding event
+  dateTime <- eventsList[[whichEvent]]$datetime[1]
+  
+  # 1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
+  # - Defining "visit" same as above in the script (definition subject to change). 
+  # - Defining `maxTime` same as above: right now it's `r maxTime` hours.
+  # 
+  # 2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
+  # Get participants
+  if(whichEvent %in% visitOrders_noRepeats$eventID){
+    participants <- visitOrders_noRepeats %>%
+      filter(eventID == whichEvent) %>%
+      pull(trackId)
+  }else{
+    participants <- NA
+  }
+  
+  # Get data prior to the event, as far back as `days`. 
+  priorData <- datMasked %>%
+    # from 1 month before the carcass was placed until the day it was placed
+    filter(timestamp > lubridate::as_date(dateTime)-lubridate::as.duration(paste(days, "days")) & 
+             timestamp <= lubridate::as_date(dateTime)) %>%
+    mutate(hoursBeforeCarcassPlaced = as.numeric(timestamp - dateTime, units = "hours"))
+  
+  # Get initial visit and initial detection for this feeding event.
+  idd <- firstDetections %>%
     filter(eventID == whichEvent) %>%
-    pull(trackId)
-}else{
-  participants <- NA
-}
-
-# Get prior data
-priorData <- datMasked %>%
-  # from 1 month before the carcass was placed until the day it was placed
-  filter(timestamp > lubridate::as_date(dateTime)-lubridate::as.duration(paste(days, "days")) & 
-           timestamp <= lubridate::as_date(dateTime)) %>%
-  mutate(hoursBeforeCarcassPlaced = as.numeric(timestamp - dateTime, units = "hours"))
-
-# Get initial visit and initial detection
-idd <- firstDetections %>%
-  filter(eventID == whichEvent) %>%
-  pull(timestamp) %>%
-  first()
-
-ivd <- firstVisits %>%
-  filter(eventID == whichEvent) %>%
-  pull(timestamp) %>%
-  first()
-
-# Create feeding and flying edges
-flightEdges <- vultureUtils::getFlightEdges(dataset = priorData, 
-                                            roostPolygons = roostPolygons, 
-                                            roostBuffer = 50, 
-                                            consecThreshold = 2, 
-                                            distThreshold = 250) %>%
-  mutate(minDate = lubridate::as_date(minTimestamp),
-         maxDate = lubridate::as_date(maxTimestamp))
-
-feedingEdges <- vultureUtils::getFeedingEdges(dataset = priorData, 
-                                              roostPolygons = roostPolygons,
+    pull(timestamp) %>%
+    first()
+  
+  ivd <- firstVisits %>%
+    filter(eventID == whichEvent) %>%
+    pull(timestamp) %>%
+    first()
+  
+  # Create feeding and flying edges for this feeding event
+  flightEdges <- vultureUtils::getFlightEdges(dataset = priorData, 
+                                              roostPolygons = roostPolygons, 
                                               roostBuffer = 50, 
-                                              consecThreshold = 2) %>%
-  mutate(minDate = lubridate::as_date(minTimestamp),
-         maxDate = lubridate::as_date(maxTimestamp))
-
-# For the edge lists, define how many days before the IVD each interaction occurred. Going to base this on the maxDate, just in case any span midnight.
-flightEdges <- flightEdges %>%
-  mutate(daysBeforeIVD = as.numeric(lubridate::as_date(ivd) - maxDate))
-
-feedingEdges <- feedingEdges %>%
-  mutate(daysBeforeIVD = as.numeric(lubridate::as_date(ivd) - maxDate))
-
-# Working backwards from the IVD, split each edge list into smaller, nested edge lists, ranging in length from 1 day to `days` days long.
-flightEdges_nested <- map(daysBack, ~flightEdges %>%
-                            filter(daysBeforeIVD <= .x) %>%
-                            mutate(daysBack = .x))
-feedingEdges_nested <- map(daysBack, ~feedingEdges %>%
-                             filter(daysBeforeIVD <= .x) %>%
-                             mutate(daysBack = .x))
-
-# Make networks!
-flightEdges_graphs <- vultureUtils::makeGraphsList(flightEdges_nested)$graphs
-feedingEdges_graphs <- vultureUtils::makeGraphsList(feedingEdges_nested)$graphs
-
-# Extract number of days for each, from the names
-nDays_flight <- as.numeric(names(flightEdges_graphs))
-nDays_feeding <- as.numeric(names(feedingEdges_graphs))
-
-# For each network, get a list of the individuals present in the largest connected component.
-indivsInLCC_flight <- map(flightEdges_graphs, getIndivsInLCC)
-indivsInLCC_feeding <- map(feedingEdges_graphs, getIndivsInLCC)
-
-# (Get number of individuals in the largest connected component, in case we need to use this later)
-nIndivsInLCC_flight <- map_dbl(indivsInLCC_flight, length)
-nIndivsInLCC_feeding <- map_dbl(indivsInLCC_feeding, length)
-
-# How many participants are included?
-propIncluded_flight <- map_dbl(indivsInLCC_flight, ~{
-  howManyIncluded <- participants %in% .x %>% sum()
-  return(howManyIncluded/length(participants))
+                                              consecThreshold = 2, 
+                                              distThreshold = 250) %>%
+    mutate(minDate = lubridate::as_date(minTimestamp),
+           maxDate = lubridate::as_date(maxTimestamp))
+  
+  feedingEdges <- vultureUtils::getFeedingEdges(dataset = priorData, 
+                                                roostPolygons = roostPolygons,
+                                                roostBuffer = 50, 
+                                                consecThreshold = 2) %>%
+    mutate(minDate = lubridate::as_date(minTimestamp),
+           maxDate = lubridate::as_date(maxTimestamp))
+  
+  # For the edge lists, define how many days before the IVD each interaction occurred. Going to base this on the maxDate, just in case any span midnight.
+  flightEdges <- flightEdges %>%
+    mutate(daysBeforeIVD = as.numeric(lubridate::as_date(ivd) - maxDate))
+  
+  feedingEdges <- feedingEdges %>%
+    mutate(daysBeforeIVD = as.numeric(lubridate::as_date(ivd) - maxDate))
+  
+  # Working backwards from the IVD, split each edge list into smaller, nested edge lists, ranging in length from 1 day to `days` days long.
+  flightEdges_nested <- map(daysBack, ~flightEdges %>%
+                              filter(daysBeforeIVD <= .x) %>%
+                              mutate(daysBack = .x))
+  feedingEdges_nested <- map(daysBack, ~feedingEdges %>%
+                               filter(daysBeforeIVD <= .x) %>%
+                               mutate(daysBack = .x))
+  
+  # Make networks!
+  flightEdges_graphs <- vultureUtils::makeGraphsList(flightEdges_nested)$graphs
+  feedingEdges_graphs <- vultureUtils::makeGraphsList(feedingEdges_nested)$graphs
+  
+  # Extract number of days for each, from the names
+  nDays_flight <- as.numeric(names(flightEdges_graphs))
+  nDays_feeding <- as.numeric(names(feedingEdges_graphs))
+  
+  # For each network, get a list of the individuals present in the largest connected component.
+  indivsInLCC_flight <- map(flightEdges_graphs, getIndivsInLCC)
+  indivsInLCC_feeding <- map(feedingEdges_graphs, getIndivsInLCC)
+  
+  # (Get number of individuals in the largest connected component, in case we need to use this later)
+  nIndivsInLCC_flight <- map_dbl(indivsInLCC_flight, length)
+  nIndivsInLCC_feeding <- map_dbl(indivsInLCC_feeding, length)
+  
+  # How many participants are included?
+  propIncluded_flight <- map_dbl(indivsInLCC_flight, ~{
+    howManyIncluded <- participants %in% .x %>% sum()
+    return(howManyIncluded/length(participants))
   }) %>%
-  as.data.frame() %>%
-  setNames(., "propIncluded_flight") %>%
-  mutate(daysBack = nDays_flight)
-
-propIncluded_feeding <- map_dbl(indivsInLCC_feeding, ~{
-  howManyIncluded <- participants %in% .x %>% sum()
-  return(howManyIncluded/length(participants))
+    as.data.frame() %>%
+    setNames(., "propIncluded_flight") %>%
+    mutate(daysBack = nDays_flight)
+  
+  propIncluded_feeding <- map_dbl(indivsInLCC_feeding, ~{
+    howManyIncluded <- participants %in% .x %>% sum()
+    return(howManyIncluded/length(participants))
   }) %>%
-  as.data.frame() %>%
-  setNames(., "propIncluded_feeding") %>%
-  mutate(daysBack = nDays_feeding)
-
-# Combine the two, and add the eventID
-out <- left_join(propIncluded_flight, propIncluded_feeding, by = "daysBack") %>%
-  mutate(eventID = whichEvent) %>%
-  dplyr::select(eventID, daysBack, propIncluded_flight, propIncluded_feeding)
-
-# Fix up the data frame: if there are no participants, or if there are no individuals included in the LCC, change 0's to NA's.
-if(length(participants) == 1 & all(is.na(participants))){
-  out <- out %>%
-    mutate(propIncluded_flight = NA,
-           propIncluded_feeding = NA)
-}else if(map_lgl(indivsInLCC_feeding, is.null) %>% any() | map_lgl(indivsInLCC_flight, is.null) %>% any()){
-  if(map_lgl(indivsInLCC_feeding, is.null) %>% any()){
-    whichFeedToNA <- unname(which(map_lgl(indivsInLCC_feeding, is.null)))
-    out$propIncluded_feeding[whichFeedToNA] <- NA
+    as.data.frame() %>%
+    setNames(., "propIncluded_feeding") %>%
+    mutate(daysBack = nDays_feeding)
+  
+  # Combine the two, and add the eventID
+  out <- left_join(propIncluded_flight, propIncluded_feeding, by = "daysBack") %>%
+    mutate(eventID = whichEvent) %>%
+    dplyr::select(eventID, daysBack, propIncluded_flight, propIncluded_feeding)
+  
+  # Fix up the data frame: if there are no participants, or if there are no individuals included in the LCC, change 0's to NA's.
+  if(length(participants) == 1 & all(is.na(participants))){
+    out <- out %>%
+      mutate(propIncluded_flight = NA,
+             propIncluded_feeding = NA)
+  }else if(map_lgl(indivsInLCC_feeding, is.null) %>% any() | map_lgl(indivsInLCC_flight, is.null) %>% any()){
+    if(map_lgl(indivsInLCC_feeding, is.null) %>% any()){
+      whichFeedToNA <- unname(which(map_lgl(indivsInLCC_feeding, is.null)))
+      out$propIncluded_feeding[whichFeedToNA] <- NA
+    }
+    if(map_lgl(indivsInLCC_flight, is.null) %>% any()){
+      whichFlightToNA <- unname(which(map_lgl(indivsInLCC_flight, is.null)))
+      out$propIncluded_flight[whichFlightToNA] <- NA
+    }
   }
-  if(map_lgl(indivsInLCC_flight, is.null) %>% any()){
-    whichFlightToNA <- unname(which(map_lgl(indivsInLCC_flight, is.null)))
-    out$propIncluded_flight[whichFlightToNA] <- NA
-  }
+  
+  outList <- list("propData" = out,
+                  "participants" = participants,
+                  "feedingEdges" = feedingEdges,
+                  "flightEdges" = flightEdges,
+                  "feedingEdges_nested" = feedingEdges_nested,
+                  "flightEdges_nested" = flightEdges_nested,
+                  "feedingEdges_graphs" = feedingEdges_graphs,
+                  "flightEdges_graphs" = flightEdges_graphs,
+                  "nDays_feeding" = nDays_feeding,
+                  "nDays_flight" = nDays_flight)
+  cat("Returning data for feeding event # ", whichEvent, "\n")
+  return(outList)
 }
-
-outList <- list("propData" = out,
-                "participants" = participants)
 ```
