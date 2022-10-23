@@ -733,12 +733,17 @@ getIndivsInLCC <- function(graph){
 #######################
 
 # For each feeding event:
-days <- 100
+days <- 50
 daysBack <- seq(from = 1, to = days, by = floor(days/10))
 names(daysBack) <- as.character(daysBack)
 whichEvent <- 6
 dateTime <- eventsList[[whichEvent]]$datetime[1]
 
+# 1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
+# - Defining "visit" same as above in the script (definition subject to change). 
+# - Defining `maxTime` same as above: right now it's `r maxTime` hours.
+# 
+# 2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
 # Get participants
 if(whichEvent %in% visitOrders_noRepeats$eventID){
   participants <- visitOrders_noRepeats %>%
@@ -854,175 +859,3 @@ if(length(participants) == 1 & all(is.na(participants))){
 outList <- list("propData" = out,
                 "participants" = participants)
 ```
-
-
-1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
-- Defining "visit" same as above in the script (definition subject to change). 
-- Defining `maxTime` same as above: right now it's `r maxTime` hours.
-
-2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
-
-```{r}
-# NA data to fill in, so that we preserve the order of feeding events.
-fillIn <- data.frame(eventID = unique(allCarcasses$eventID),
-                     trackId = NA) %>%
-  filter(!eventID %in% visitOrders_noRepeats$eventID)
-
-participantsList <- visitOrders_noRepeats %>%
-  bind_rows(fillIn) %>%
-  group_by(eventID) %>%
-  group_split() %>%
-  map("trackId") # now this includes NA's in the right places
-length(participantsList) # good.
-```
-
-3.  For each feeding event, obtain data for 2 months prior.
-
--   This seems like a tractable number of days to start with. Can increase it if need be.
-
-```{r}
-days <- 30
-priorData <- map(eventsList, ~{
-  datMasked %>%
-    # from 1 month before the carcass was placed until the day it was placed
-    filter(timestamp > lubridate::as_date(.x$datetime[1])-lubridate::as.duration(paste(days, "days")) & 
-             timestamp <= lubridate::as_date(.x$datetime[1])) %>%
-    mutate(hoursBeforeCarcassPlaced = as.numeric(timestamp - .x$datetime[1], units = "hours"))
-})
-```
-
-4.  Create roosting/feeding/flying edge lists for each feeding event. - Don't have code for roosting right now--will have to come back to that.
-```{r}
-roostPolygons <- sf::st_read("data/AllRoostPolygons.kml")
-# flightEdges <- map(priorData, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250))
-# flightEdges <- map(flightEdges, ~.x %>% mutate(minDate = lubridate::as_date(minTimestamp),
-#                                                          maxDate = lubridate::as_date(maxTimestamp)))
-# save(flightEdges, file = "data/flightEdges.Rda")
-load("data/flightEdges.Rda")
-
-# feedingEdges <- map(priorData, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2))
-# feedingEdges <- map(feedingEdges, ~.x %>% mutate(minDate = lubridate::as_date(minTimestamp),
-#                                                          maxDate = lubridate::as_date(maxTimestamp)))
-# save(feedingEdges, file = "data/feedingEdges.Rda")
-load("data/feedingEdges.Rda")
-```
-
-5.  Define initial detection and initial visit date/time (IDD/IDDt, IVD/IVDt) for each carcass (date and time when the first vulture first visited the carcass). 
-```{r}
-ivds <- firstVisits %>%
-  dplyr::select(eventID, timestamp, dateOnly, trackId) %>%
-  group_by(eventID) %>%
-  arrange(timestamp, .by_group = T) %>%
-  slice(1)
-
-idds <- firstDetections %>%
-  dplyr::select(eventID, timestamp, dateOnly, trackId) %>%
-  group_by(eventID) %>%
-  arrange(timestamp, .by_group = T) %>%
-  slice(1)
-
-# Include "first visits" and "first detections" (NA's) for any carcasses that don't have them
-ideal <- data.frame(eventID = sort(unique(allCarcasses$eventID)),
-                    dateOnly = NA,
-                    timestamp = NA,
-                    trackId = NA)
-
-ivds <- ivds %>%
-  bind_rows(ideal %>%
-              filter(!eventID %in% ivds$eventID)) %>%
-  arrange(eventID)
-
-idds <- idds %>%
-  bind_rows(ideal %>%
-              filter(!eventID %in% idds$eventID)) %>%
-  arrange(eventID)
-```
-
-5b. For the edge lists, define how many days before the IVD each interaction occurred. Going to base this on the maxDate, just in case any span midnight.
-```{r}
-feedingEdges <- map2(flightEdges, ivds$dateOnly, ~{
-  .x %>%
-    mutate(daysBeforeIVD = as.numeric(.y - maxDate))
-})
-
-flightEdges <- map2(flightEdges, ivds$dateOnly, ~{
-  .x %>%
-    mutate(daysBeforeIVD = as.numeric(.y - maxDate))
-})
-```
-
-6.  Working backwards from the IVD, split each feeding event's edge list into smaller, nested edge lists, ranging in length from 1 to `r days` days long.
-```{r}
-daysBack <- c(1, 2, 5, 10, 15, 30)
-names(daysBack) <- as.character(daysBack)
-nestFun <- function(dataToSplit){
-  map_dfr(daysBack, ~{dataToSplit %>%
-      filter(daysBeforeIVD <= .x)}, # remove all days longer ago than the current daysBack value
-      .id = "daysBack")
-}
-feedingEdges_nested <- map(feedingEdges, nestFun) %>%
-  map(., ~.x %>% mutate(daysBack = as.numeric(daysBack)))
-flightEdges_nested <- map(flightEdges, nestFun) %>%
-  map(., ~.x %>% mutate(daysBack = as.numeric(daysBack)))
-```
-
-7.  Make networks for each of these.
-```{r}
-# Use group_split to get truly nested lists
-feedingEdges_nested <- map(feedingEdges_nested, ~.x %>% group_by(daysBack) %>% group_split(.keep  = T))
-flightEdges_nested <- map(flightEdges_nested, ~.x %>% group_by(daysBack) %>% group_split(.keep  = T))
-
-# Now actually make networks. Going to need, effectively, a nested call to `map` here.
-feedingEdges_graphs <- map(feedingEdges_nested, ~vultureUtils::makeGraphsList(.x)$graphs)
-flightEdges_graphs <- map(flightEdges_nested, ~vultureUtils::makeGraphsList(.x)$graphs)
-
-# Note that these don't have the number of days extracted. Need to extract those separately.
-getNDays <- function(x){
-  map(x, "daysBack") %>%
-    map_dbl(unique)
-}
-nDays_feeding <- map(feedingEdges_nested, getNDays)
-nDays_flight <- map(flightEdges_nested, getNDays)
-```
-
-8.  For each network, get a list of the individuals present in the largest connected component.
-```{r}
-getIndivsInLCC <- function(graph){
-  # get components of the graph
-  components <- igraph::clusters(graph, mode="weak")
-  
-  # get largest connected component
-  biggest_cluster_id <- which.max(components$csize)
-  
-  # ids
-  vert_ids <- names(V(graph)[components$membership == biggest_cluster_id])
-}
-
-# make the above function take a list of graphs
-getIndivsInLCC_list <- function(graphList){
-  map(graphList, getIndivsInLCC)
-}
-
-# Now finally, map it to the list of lists
-indivsInLCC_feeding <- map(feedingEdges_graphs, getIndivsInLCC_list)
-indivsInLCC_flight <- map(flightEdges_graphs, getIndivsInLCC_list)
-```
-
-9.  Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
-
-```{r}
-# Going to make a list of lists. One element of the list for each eventID. Slicing vertically. Have to do this differently for feeding and flight.
-# XXX I think I can improve all of this code by just figuring it out for one eventID and then applying it to all eventID's. But too late now, let's forge ahead and then refactor it later.
-
-# Explicitly giving each of these slots in the list.
-aggregated_feeding <- pmap(.l = list("eventID" = 1:length(participantsList), "participants" = participantsList, "nDaysBack" = nDays_feeding, "indivsInLCC" = indivsInLCC_feeding), ~{
-  list(..1, ..2, ..3, ..4)
-})
-```
-
-
-## NEXT STEPS:
-
--   Read the NBDA paper to figure out what information we need to assess info spread
--   Create networks to test alternative hypotheses
--   Follow NBDA procedures.
