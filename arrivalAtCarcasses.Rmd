@@ -872,6 +872,17 @@ indivsInLCC_flight <- map(flightEdges_graphs, getIndivsInLCC_list)
 
 9.  Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
 
+```{r}
+# Going to make a list of lists. One element of the list for each eventID. Slicing vertically. Have to do this differently for feeding and flight.
+# XXX I think I can improve all of this code by just figuring it out for one eventID and then applying it to all eventID's. But too late now, let's forge ahead and then refactor it later.
+
+# Explicitly giving each of these slots in the list.
+aggregated_feeding <- pmap(.l = list("eventID" = 1:length(participantsList), "participants" = participantsList, "nDaysBack" = nDays_feeding, "indivsInLCC" = indivsInLCC_feeding), ~{
+  list(..1, ..2, ..3, ..4)
+})
+```
+
+
 ## NEXT STEPS:
 
 -   Read the NBDA paper to figure out what information we need to assess info spread
