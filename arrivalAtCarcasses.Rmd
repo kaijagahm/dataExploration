@@ -859,15 +859,77 @@ lccProportionsFunction <- function(whichEvent, days){
   
   outList <- list("propData" = out,
                   "participants" = participants,
-                  "feedingEdges" = feedingEdges,
-                  "flightEdges" = flightEdges,
-                  "feedingEdges_nested" = feedingEdges_nested,
-                  "flightEdges_nested" = flightEdges_nested,
-                  "feedingEdges_graphs" = feedingEdges_graphs,
-                  "flightEdges_graphs" = flightEdges_graphs,
-                  "nDays_feeding" = nDays_feeding,
-                  "nDays_flight" = nDays_flight)
-  cat("Returning data for feeding event # ", whichEvent, "\n")
+                  # "feedingEdges" = feedingEdges,
+                  # "flightEdges" = flightEdges,
+                  # "feedingEdges_nested" = feedingEdges_nested,
+                  # "flightEdges_nested" = flightEdges_nested,
+                  # "feedingEdges_graphs" = feedingEdges_graphs,
+                  # "flightEdges_graphs" = flightEdges_graphs,
+                  # "nDays_feeding" = nDays_feeding,
+                  #"nDays_flight" = nDays_flight
+                  )
+  cat("Retrieving and computing data for feeding event #", whichEvent, "\n")
   return(outList)
 }
 ```
+
+Actually run the above function for all the feeding events, to collect data. (This part takes a while.)
+
+```{r}
+# data_allEvents <- map(1:length(eventsList), ~{lccProportionsFunction(whichEvent = .x, days = 60)})
+# save(data_allEvents, file = "data/data_allEvents.Rda")
+load("data/data_allEvents.Rda")
+
+# Get just the proportion data
+propData <- map_dfr(data_allEvents, "propData") %>%
+  pivot_longer(cols = c(propIncluded_flight, propIncluded_feeding), names_to = "situation", 
+               values_to = "propIncluded") %>%
+  mutate(situation = stringr::str_remove(situation, "propIncluded_"))
+```
+
+Calculate the number of days needed for 90%:
+```{r}
+# Important: this analysis will only include feeding events that DO eventually reach 90%!
+# For each feeding event, retrieve the first time that propIncluded goes above 90% for each of feeding and flight
+ninetyPerCent <- propData %>%
+  filter(propIncluded >= .9) %>%
+  group_by(eventID, situation) %>%
+  arrange(daysBack, .by_group = T) %>%
+  slice(1)
+```
+
+Make a boxplot:
+```{r}
+nData <- ninetyPerCent %>%
+  group_by(situation) %>%
+  summarize(n = length(eventID),
+            total = 55)
+
+ninetyPerCent %>%
+  ggplot(aes(x = situation, y = daysBack, fill = situation))+
+  geom_boxplot()+
+  theme_minimal()+
+  ylab("#days for 90% in network")+
+  xlab("Behavioral situation")+
+  theme(legend.position = "none")+
+  theme(text = element_text(size = 20))+
+  geom_text(data = nData, aes(y = 0, label = paste("n =", n, "feeding events")))
+
+```
+
+
+Make an accumulation plot:
+```{r}
+propData %>%
+  filter(!is.na(propIncluded)) %>%
+  ggplot(aes(x = daysBack, y = propIncluded, col = factor(eventID)))+
+  geom_point()+
+  geom_line()+
+  facet_wrap(~situation)+
+  theme_minimal()+
+  theme(legend.position = "none")+
+  ylab("Prop. indivs. included")+
+  xlab("Network time interval (days)")+
+  theme(text = element_text(size = 20))
+```
+
