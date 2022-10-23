@@ -724,11 +724,17 @@ Pseudocode:
 2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
 
 ```{r}
-#XXX this drops nulls!
+# NA data to fill in, so that we preserve the order of feeding events.
+fillIn <- data.frame(eventID = unique(allCarcasses$eventID),
+                    trackId = NA) %>%
+  filter(!eventID %in% visitOrders_noRepeats$eventID)
+
 participantsList <- visitOrders_noRepeats %>%
+  bind_rows(fillIn) %>%
   group_by(eventID) %>%
   group_split() %>%
-  map("trackId")
+  map("trackId") # now this includes NA's in the right places
+length(participantsList) # good.
 ```
 
 3.  For each feeding event, obtain data for 2 months prior.
@@ -842,8 +848,29 @@ nDays_flight <- map(flightEdges_nested, getNDays)
 ```
 
 8.  For each network, get a list of the individuals present in the largest connected component.
+```{r}
+getIndivsInLCC <- function(graph){
+  # get components of the graph
+  components <- igraph::clusters(graph, mode="weak")
+  
+  # get largest connected component
+  biggest_cluster_id <- which.max(components$csize)
 
-9.  ?? not sure about this step. Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
+  # ids
+  vert_ids <- names(V(graph)[components$membership == biggest_cluster_id])
+}
+
+# make the above function take a list of graphs
+getIndivsInLCC_list <- function(graphList){
+  map(graphList, getIndivsInLCC)
+}
+
+# Now finally, map it to the list of lists
+indivsInLCC_feeding <- map(feedingEdges_graphs, getIndivsInLCC_list)
+indivsInLCC_flight <- map(flightEdges_graphs, getIndivsInLCC_list)
+```
+
+9.  Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
 
 ## NEXT STEPS:
 
