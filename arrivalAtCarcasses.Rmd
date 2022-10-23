@@ -717,8 +717,128 @@ The context here is that if we want to run a diffusion analysis, we have to dete
 
 Pseudocode:
 
+```{r}
+# before map:
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml")
+daysBack <- c(1, 2, 5, 10, 15, 30) # XXX make this programmatic based on the `days` variable
+names(daysBack) <- as.character(daysBack)
+getIndivsInLCC <- function(graph){
+  # get components of the graph
+  components <- igraph::clusters(graph, mode="weak")
+  
+  # get largest connected component
+  biggest_cluster_id <- which.max(components$csize)
+  
+  # ids
+  vert_ids <- names(V(graph)[components$membership == biggest_cluster_id])
+}
+#######################
+
+# For each feeding event:
+days <- 30
+whichEvent <- 6
+dateTime <- eventsList[[whichEvent]]$datetime[1]
+
+# Get participants
+if(whichEvent %in% visitOrders_noRepeats$eventID){
+  participants <- visitOrders_noRepeats %>%
+    filter(eventID == whichEvent) %>%
+    pull(trackId)
+}else{
+  participants <- NA
+}
+
+# Get prior data
+priorData <- datMasked %>%
+  # from 1 month before the carcass was placed until the day it was placed
+  filter(timestamp > lubridate::as_date(dateTime)-lubridate::as.duration(paste(days, "days")) & 
+           timestamp <= lubridate::as_date(dateTime)) %>%
+  mutate(hoursBeforeCarcassPlaced = as.numeric(timestamp - dateTime, units = "hours"))
+
+# Get initial visit and initial detection
+idd <- firstDetections %>%
+  filter(eventID == whichEvent) %>%
+  pull(timestamp) %>%
+  first()
+
+ivd <- firstVisits %>%
+  filter(eventID == whichEvent) %>%
+  pull(timestamp) %>%
+  first()
+
+# Create feeding and flying edges
+flightEdges <- vultureUtils::getFlightEdges(dataset = priorData, 
+                                            roostPolygons = roostPolygons, 
+                                            roostBuffer = 50, 
+                                            consecThreshold = 2, 
+                                            distThreshold = 250) %>%
+  mutate(minDate = lubridate::as_date(minTimestamp),
+         maxDate = lubridate::as_date(maxTimestamp))
+
+feedingEdges <- vultureUtils::getFeedingEdges(dataset = priorData, 
+                                              roostPolygons = roostPolygons,
+                                              roostBuffer = 50, 
+                                              consecThreshold = 2) %>%
+  mutate(minDate = lubridate::as_date(minTimestamp),
+         maxDate = lubridate::as_date(maxTimestamp))
+
+# For the edge lists, define how many days before the IVD each interaction occurred. Going to base this on the maxDate, just in case any span midnight.
+flightEdges <- flightEdges %>%
+  mutate(daysBeforeIVD = as.numeric(lubridate::as_date(ivd) - maxDate))
+
+feedingEdges <- feedingEdges %>%
+  mutate(daysBeforeIVD = as.numeric(lubridate::as_date(ivd) - maxDate))
+
+# Working backwards from the IVD, split each edge list into smaller, nested edge lists, ranging in length from 1 day to `days` days long.
+flightEdges_nested <- map(daysBack, ~flightEdges %>%
+                            filter(daysBeforeIVD <= .x) %>%
+                            mutate(daysBack = .x))
+feedingEdges_nested <- map(daysBack, ~feedingEdges %>%
+                             filter(daysBeforeIVD <= .x) %>%
+                             mutate(daysBack = .x))
+
+# Make networks!
+flightEdges_graphs <- vultureUtils::makeGraphsList(flightEdges_nested)$graphs
+feedingEdges_graphs <- vultureUtils::makeGraphsList(feedingEdges_nested)$graphs
+
+# Extract number of days for each, from the names
+nDays_flight <- as.numeric(names(flightEdges_graphs))
+nDays_feeding <- as.numeric(names(feedingEdges_graphs))
+
+# For each network, get a list of the individuals present in the largest connected component.
+indivsInLCC_flight <- map(flightEdges_graphs, getIndivsInLCC)
+indivsInLCC_feeding <- map(feedingEdges_graphs, getIndivsInLCC)
+
+# (Get number of individuals in the largest connected component, in case we need to use this later)
+nIndivsInLCC_flight <- map_dbl(indivsInLCC_flight, length)
+nIndivsInLCC_feeding <- map_dbl(indivsInLCC_feeding, length)
+
+# How many participants are included?
+propIncluded_flight <- map_dbl(indivsInLCC_flight, ~{
+  howManyIncluded <- participants %in% .x %>% sum()
+  return(howManyIncluded/length(participants))
+  }) %>%
+  as.data.frame() %>%
+  setNames(., "propIncluded_flight") %>%
+  mutate(daysBack = nDays_flight)
+
+propIncluded_feeding <- map_dbl(indivsInLCC_feeding, ~{
+  howManyIncluded <- participants %in% .x %>% sum()
+  return(howManyIncluded/length(participants))
+  }) %>%
+  as.data.frame() %>%
+  setNames(., "propIncluded_feeding") %>%
+  mutate(daysBack = nDays_feeding)
+
+# Combine the two, and add the eventID
+out <- left_join(propIncluded_flight, propIncluded_feeding, by = "daysBack") %>%
+  mutate(eventID = whichEvent) %>%
+  dplyr::select(eventID, daysBack, propIncluded_flight, propIncluded_feeding)
+```
+
+
 1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
-- Defining"visit" same as above in the script (definition subject to change). 
+- Defining "visit" same as above in the script (definition subject to change). 
 - Defining `maxTime` same as above: right now it's `r maxTime` hours.
 
 2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
@@ -726,7 +846,7 @@ Pseudocode:
 ```{r}
 # NA data to fill in, so that we preserve the order of feeding events.
 fillIn <- data.frame(eventID = unique(allCarcasses$eventID),
-                    trackId = NA) %>%
+                     trackId = NA) %>%
   filter(!eventID %in% visitOrders_noRepeats$eventID)
 
 participantsList <- visitOrders_noRepeats %>%
@@ -755,7 +875,6 @@ priorData <- map(eventsList, ~{
 4.  Create roosting/feeding/flying edge lists for each feeding event. - Don't have code for roosting right now--will have to come back to that.
 ```{r}
 roostPolygons <- sf::st_read("data/AllRoostPolygons.kml")
-
 # flightEdges <- map(priorData, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250))
 # flightEdges <- map(flightEdges, ~.x %>% mutate(minDate = lubridate::as_date(minTimestamp),
 #                                                          maxDate = lubridate::as_date(maxTimestamp)))
@@ -805,12 +924,12 @@ idds <- idds %>%
 feedingEdges <- map2(flightEdges, ivds$dateOnly, ~{
   .x %>%
     mutate(daysBeforeIVD = as.numeric(.y - maxDate))
-  })
+})
 
 flightEdges <- map2(flightEdges, ivds$dateOnly, ~{
   .x %>%
     mutate(daysBeforeIVD = as.numeric(.y - maxDate))
-  })
+})
 ```
 
 6.  Working backwards from the IVD, split each feeding event's edge list into smaller, nested edge lists, ranging in length from 1 to `r days` days long.
@@ -855,7 +974,7 @@ getIndivsInLCC <- function(graph){
   
   # get largest connected component
   biggest_cluster_id <- which.max(components$csize)
-
+  
   # ids
   vert_ids <- names(V(graph)[components$membership == biggest_cluster_id])
 }
