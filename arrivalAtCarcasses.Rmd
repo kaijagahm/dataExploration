@@ -720,8 +720,6 @@ Pseudocode:
 ```{r}
 # before map:
 roostPolygons <- sf::st_read("data/AllRoostPolygons.kml")
-daysBack <- c(1, 2, 5, 10, 15, 30) # XXX make this programmatic based on the `days` variable
-names(daysBack) <- as.character(daysBack)
 getIndivsInLCC <- function(graph){
   # get components of the graph
   components <- igraph::clusters(graph, mode="weak")
@@ -735,7 +733,9 @@ getIndivsInLCC <- function(graph){
 #######################
 
 # For each feeding event:
-days <- 30
+days <- 100
+daysBack <- seq(from = 1, to = days, by = floor(days/10))
+names(daysBack) <- as.character(daysBack)
 whichEvent <- 6
 dateTime <- eventsList[[whichEvent]]$datetime[1]
 
@@ -836,7 +836,7 @@ out <- left_join(propIncluded_flight, propIncluded_feeding, by = "daysBack") %>%
   dplyr::select(eventID, daysBack, propIncluded_flight, propIncluded_feeding)
 
 # Fix up the data frame: if there are no participants, or if there are no individuals included in the LCC, change 0's to NA's.
-if(is.na(participants)){
+if(length(participants) == 1 & all(is.na(participants))){
   out <- out %>%
     mutate(propIncluded_flight = NA,
            propIncluded_feeding = NA)
