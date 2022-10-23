@@ -834,6 +834,25 @@ propIncluded_feeding <- map_dbl(indivsInLCC_feeding, ~{
 out <- left_join(propIncluded_flight, propIncluded_feeding, by = "daysBack") %>%
   mutate(eventID = whichEvent) %>%
   dplyr::select(eventID, daysBack, propIncluded_flight, propIncluded_feeding)
+
+# Fix up the data frame: if there are no participants, or if there are no individuals included in the LCC, change 0's to NA's.
+if(is.na(participants)){
+  out <- out %>%
+    mutate(propIncluded_flight = NA,
+           propIncluded_feeding = NA)
+}else if(map_lgl(indivsInLCC_feeding, is.null) %>% any() | map_lgl(indivsInLCC_flight, is.null) %>% any()){
+  if(map_lgl(indivsInLCC_feeding, is.null) %>% any()){
+    whichFeedToNA <- unname(which(map_lgl(indivsInLCC_feeding, is.null)))
+    out$propIncluded_feeding[whichFeedToNA] <- NA
+  }
+  if(map_lgl(indivsInLCC_flight, is.null) %>% any()){
+    whichFlightToNA <- unname(which(map_lgl(indivsInLCC_flight, is.null)))
+    out$propIncluded_flight[whichFlightToNA] <- NA
+  }
+}
+
+outList <- list("propData" = out,
+                "participants" = participants)
 ```
 
 
