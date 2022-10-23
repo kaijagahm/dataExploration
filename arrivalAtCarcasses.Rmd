@@ -1,11 +1,6 @@
----
-title: "Arrival At Carcasses"
-author: "Kaija Gahm"
-date: "2022-10-10"
-output: html_document
-editor_options: 
-  markdown: 
-    wrap: sentence
+------------------------------------------------------------------------
+
+title: "Arrival At Carcasses" author: "Kaija Gahm" date: "2022-10-10" output: html_document editor_options: markdown: wrap: sentence
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
@@ -35,8 +30,7 @@ datAnnot <- feather::read_feather("data/datAnnot.feather")
 
 ## IDENTIFY FEEDING EVENTS
 
-Let's move on to examining an individual's movement patterns to identify arrival at a carcass site.
-Going to pick the individual with the longest run:
+Let's move on to examining an individual's movement patterns to identify arrival at a carcass site. Going to pick the individual with the longest run:
 
 ```{r}
 targetIndiv <- unique(datAnnot$trackId[datAnnot$longestRun == max(datAnnot$longestRun)])
@@ -54,8 +48,7 @@ randomDay <- sample(1:length(trackDays), size = 1)
 
 ### Relative altitude
 
-In order for an analysis of speed and altitude to make any sense at all, we need to cross-reference these measurements with elevation data for Israel.
-We can obtain this using the `elevatr` package.
+In order for an analysis of speed and altitude to make any sense at all, we need to cross-reference these measurements with elevation data for Israel. We can obtain this using the `elevatr` package.
 
 ```{r include = F}
 # Add sunrise and sunset information using suncalc
@@ -200,17 +193,16 @@ feedEvents <- feedEvents %>%
 ```{r}
 # Mask the data
 mask <- suppressMessages(sf::st_read("data/CutOffRegion.kml"))
-datMasked <- vultureUtils::maskData(dataset = datAnnot, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
+# datMasked <- vultureUtils::maskData(dataset = datAnnot, mask = mask, longCol = "location_long.1", latCol = "location_lat.1", crs = "WGS84")
+# save(datMasked, file = "data/datMasked.Rda")
+load("data/datMasked.Rda")
 ```
 
 ### Distance from carcass vs. time
 
-In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this.
-To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass.
-So that's 96 hours.
+In the supplementary material of Harel et al. 2016, it says that carcasses are usually discovered and consumed within "a few days," and that feeding by other scavengers also contributes to this. To be conservative, I'm going to examine a 4-day period after carcass deposition, regardless of when the vultures find the carcass. So that's 96 hours.
 
-I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it.
-Duh.
+I was going to try to animate this, but instead I'm just going to calculate distance over time and plot it. Duh.
 
 ```{r}
 # Set some parameters for time lengths
@@ -225,43 +217,47 @@ eventsList <- feedEvents %>%
   group_split(.keep = T)
 length(eventsList)
 
-eventsDat <- map(eventsList, ~datMasked %>%
-                   # from 2 hours before the carcass was placed to maxTime hours after
-                   filter(timestamp > .x$datetime[1]-lubridate::as.duration("2 hours") & timestamp < .x$datetime[1] + lubridate::as.duration(maxTimeWords)) %>%
-                   mutate(hoursSinceCarcassPlaced = as.numeric(timestamp - .x$datetime[1], units = "hours")))
+# eventsDat <- map(eventsList, ~datMasked %>%
+#                    # from 2 hours before the carcass was placed to maxTime hours after
+#                    filter(timestamp > .x$datetime[1]-lubridate::as.duration("2 hours") & timestamp < .x$datetime[1] + lubridate::as.duration(maxTimeWords)) %>%
+#                    mutate(hoursSinceCarcassPlaced = as.numeric(timestamp - .x$datetime[1], units = "hours")))
+# 
+# eventsDat <- map2(eventsDat, eventsList, ~{.x %>%
+#     mutate(kmFromCarcass = as.numeric(sf::st_distance(., .y))/1000)})
+# 
+# # download elevation rasters for points within 3km of each feeding event
+# eventsDat3km <- map(eventsDat, ~.x %>% filter(kmFromCarcass < 3))
 
-eventsDat <- map2(eventsDat, eventsList, ~{.x %>%
-    mutate(kmFromCarcass = as.numeric(sf::st_distance(., .y))/1000)})
-
-# download elevation rasters for points within 3km of each feeding event
-eventsDat3km <- map(eventsDat, ~.x %>% filter(kmFromCarcass < 3))
-
-elevRasters <- map(eventsDat3km, ~{
-  if(nrow(.x) == 0){
-    return(NULL)
-  }else{
-    elev <- elevatr::get_elev_raster(.x, z = 10)
-    return(elev)
-  }
-})
-
-# add elevation information to data frames, only for the points within 3km of the feeding site.
-eventsDat <- map2(eventsDat, elevRasters, ~{
-  if(is.null(.y)){
-    .x <- .x %>%
-      mutate(groundElev = NA,
-             height_above_ground = NA)
-  }else{
-    .x <- .x %>%
-      mutate(groundElev = raster::extract(.y, .x),
-             height_above_ground = height_above_msl - groundElev) %>%
-      mutate(height_above_ground = case_when(height_above_ground < 0 ~ 0,
-                                             TRUE ~ height_above_ground))
-  }
-})
-
-# Remove geometry information so the data are easier to work with
-eventsDat <- map(eventsDat, sf::st_drop_geometry)
+# elevRasters <- map(eventsDat3km, ~{
+#   if(nrow(.x) == 0){
+#     return(NULL)
+#   }else{
+#     elev <- elevatr::get_elev_raster(.x, z = 10)
+#     return(elev)
+#   }
+# })
+# save(elevRasters, file = "data/elevRasters.Rda")
+# load("data/elevRasters.Rda")
+# 
+# # add elevation information to data frames, only for the points within 3km of the feeding site.
+# eventsDat <- map2(eventsDat, elevRasters, ~{
+#   if(is.null(.y)){
+#     .x <- .x %>%
+#       mutate(groundElev = NA,
+#              height_above_ground = NA)
+#   }else{
+#     .x <- .x %>%
+#       mutate(groundElev = raster::extract(.y, .x),
+#              height_above_ground = height_above_msl - groundElev) %>%
+#       mutate(height_above_ground = case_when(height_above_ground < 0 ~ 0,
+#                                              TRUE ~ height_above_ground))
+#   }
+# })
+# 
+# # Remove geometry information so the data are easier to work with
+# eventsDat <- map(eventsDat, sf::st_drop_geometry)
+# save(eventsDat, file = "data/eventsDat.Rda")
+load("data/eventsDat.Rda")
 
 # Now we can use this to make the same plot for each feeding event, limiting it to a certain radius
 # maxTime plots
@@ -379,6 +375,7 @@ eventsDat <- map(eventsDat, ~{.x %>%
 ```
 
 ### Latency
+
 ```{r include = F}
 allCarcasses <- data.table::rbindlist(eventsDat, idcol = "eventID") %>%
   as.data.frame() %>%
@@ -442,8 +439,7 @@ firsts <- firstDetections %>%
   mutate(latency = visit-detection)
 ```
 
-Is there a relationship between first detection and first visit?
-This should be intuitively obvious.
+Is there a relationship between first detection and first visit? This should be intuitively obvious.
 
 ```{r}
 firsts %>%
@@ -485,9 +481,7 @@ firsts %>%
   geom_smooth(method = "lm")
 ```
 
-No relationship here.
-Later-detected carcasses don't take longer to be visited once they are detected.
-That said, the sample size is really small--need more data.
+No relationship here. Later-detected carcasses don't take longer to be visited once they are detected. That said, the sample size is really small--need more data.
 
 ### Accumulation curves: birds at carcasses
 
@@ -535,9 +529,10 @@ firstVisits %>%
   ylab("Number of unique vultures that have visited")+
   xlab("Time since the first vulture first visited (hours)")
 ```
+
 ## ANIMATION
-I'm going to be following this tutorial: <https://hansenjohnson.org/post/animate-movement-in-r/> Make an animation for a single carcass over a few days.
-I'm going to use feeding event 36, since it seems relatively simple.
+
+I'm going to be following this tutorial: <https://hansenjohnson.org/post/animate-movement-in-r/> Make an animation for a single carcass over a few days. I'm going to use feeding event 36, since it seems relatively simple.
 
 ### STEP 1:
 
@@ -625,6 +620,7 @@ p
 ```
 
 ### STEP 4: Make the animation
+
 ```{r eval = FALSE}
 anim <- p + 
   transition_reveal(along = hour)+
@@ -686,6 +682,7 @@ detectionOrders_noRepeats <- detectionOrders %>%
 ```
 
 ### Compare visits vs. detections
+
 ```{r include = F}
 # SANITY CHECK
 dfCombined <- bind_rows(detectionOrders_noRepeats, visitOrders_noRepeats) %>%
@@ -700,7 +697,7 @@ dfCombined %>%
 
 ```{r}
 # Does detection rank order correlate with visit rank order?
-dfCombined %>%
+dfCombined %>% # XXX COME BACK TO THIS--NEED TO FILTER OUT THE DETECTIONS THAT ARE ALSO VISITS
   ggplot(aes(x = order_detection, y = order_visit, col = factor(eventID)))+
   geom_point(alpha = 0.5, size = 2)+
   geom_smooth(method = "lm", se = F, size = 0.5)+
@@ -710,37 +707,143 @@ dfCombined %>%
   theme(legend.position = "none")
 ```
 
-There is usually a relationship between detections and visits--i.e.
-those that detect the carcass later are also later to visit.
-But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
+There is usually a relationship between detections and visits--i.e. those that detect the carcass later are also later to visit. But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
 
 ## DEFINE TIME SCALES FOR BEHAVIORAL CONTEXTS
 
 What is the time scale over which we can make a network such that 90% of the individuals that fed at the carcass are included in the largest connected component?
 
-The context here is that if we want to run a diffusion analysis, we have to determine which network to run it ON. The actual running of the procedure is pretty straightforward. Different timescales may be meaningful for information transmission in different behavioral contexts. So let's determine which timescale is meaningful for each one. 
+The context here is that if we want to run a diffusion analysis, we have to determine which network to run it ON. The actual running of the procedure is pretty straightforward. Different timescales may be meaningful for information transmission in different behavioral contexts. So let's determine which timescale is meaningful for each one.
 
-Pseudocode: 
+Pseudocode:
+
 1. Define "fed at the carcass" as "made a **visit** to the carcass during the `r maxTime` hour window starting when it was initially placed. 
-  - Defining"visit" same as above in the script (definition subject to change). 
-  - Defining `maxTime` same as above: right now it's `r maxTime` hours. 
+- Defining"visit" same as above in the script (definition subject to change). 
+- Defining `maxTime` same as above: right now it's `r maxTime` hours.
 
-2. Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
+2.  Get a list of individuals that visited the carcass for each feeding event, according to that definition. Call this `participants`. Call the list `participantsList` or something.
 
-3. For each feeding event, obtain data for 2 months prior. 
-  - This seems like a tractable number of days to start with. Can increase it if need be. 
+```{r}
+#XXX this drops nulls!
+participantsList <- visitOrders_noRepeats %>%
+  group_by(eventID) %>%
+  group_split() %>%
+  map("trackId")
+```
 
-4. Create daily roosting/feeding/flying networks for each feeding event. - Don't have code for roosting right now--will have to come back to that. 
+3.  For each feeding event, obtain data for 2 months prior.
 
-5. Define initial detection and initial visit date/time (IDD/IDDt, IVD/IVDt) for each carcass (date and time when the first vulture first visited the carcass). 
+-   This seems like a tractable number of days to start with. Can increase it if need be.
 
-6. Working backwards from the IVD, make vectors to assign daily networks to groups. 
+```{r}
+days <- 30
+priorData <- map(eventsList, ~{
+  datMasked %>%
+    # from 1 month before the carcass was placed until the day it was placed
+    filter(timestamp > lubridate::as_date(.x$datetime[1])-lubridate::as.duration(paste(days, "days")) & 
+             timestamp <= lubridate::as_date(.x$datetime[1])) %>%
+    mutate(hoursBeforeCarcassPlaced = as.numeric(timestamp - .x$datetime[1], units = "hours"))
+})
+```
 
-7. Using purrr::map2 and/or purrr::pmap, use those assignment vectors and the original list to aggregate the daily networks into more-than-daily networks.
+4.  Create roosting/feeding/flying edge lists for each feeding event. - Don't have code for roosting right now--will have to come back to that.
+```{r}
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml")
 
-8. For each network, get a list of the individuals present in the largest connected component.
+# flightEdges <- map(priorData, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250))
+# flightEdges <- map(flightEdges, ~.x %>% mutate(minDate = lubridate::as_date(minTimestamp),
+#                                                          maxDate = lubridate::as_date(maxTimestamp)))
+# save(flightEdges, file = "data/flightEdges.Rda")
+load("data/flightEdges.Rda")
 
-9. ?? not sure about this step. Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
+# feedingEdges <- map(priorData, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2))
+# feedingEdges <- map(feedingEdges, ~.x %>% mutate(minDate = lubridate::as_date(minTimestamp),
+#                                                          maxDate = lubridate::as_date(maxTimestamp)))
+# save(feedingEdges, file = "data/feedingEdges.Rda")
+load("data/feedingEdges.Rda")
+```
+
+5.  Define initial detection and initial visit date/time (IDD/IDDt, IVD/IVDt) for each carcass (date and time when the first vulture first visited the carcass). 
+```{r}
+ivds <- firstVisits %>%
+  dplyr::select(eventID, timestamp, dateOnly, trackId) %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = T) %>%
+  slice(1)
+
+idds <- firstDetections %>%
+  dplyr::select(eventID, timestamp, dateOnly, trackId) %>%
+  group_by(eventID) %>%
+  arrange(timestamp, .by_group = T) %>%
+  slice(1)
+
+# Include "first visits" and "first detections" (NA's) for any carcasses that don't have them
+ideal <- data.frame(eventID = sort(unique(allCarcasses$eventID)),
+                    dateOnly = NA,
+                    timestamp = NA,
+                    trackId = NA)
+
+ivds <- ivds %>%
+  bind_rows(ideal %>%
+              filter(!eventID %in% ivds$eventID)) %>%
+  arrange(eventID)
+
+idds <- idds %>%
+  bind_rows(ideal %>%
+              filter(!eventID %in% idds$eventID)) %>%
+  arrange(eventID)
+```
+
+5b. For the edge lists, define how many days before the IVD each interaction occurred. Going to base this on the maxDate, just in case any span midnight.
+```{r}
+feedingEdges <- map2(flightEdges, ivds$dateOnly, ~{
+  .x %>%
+    mutate(daysBeforeIVD = as.numeric(.y - maxDate))
+  })
+
+flightEdges <- map2(flightEdges, ivds$dateOnly, ~{
+  .x %>%
+    mutate(daysBeforeIVD = as.numeric(.y - maxDate))
+  })
+```
+
+6.  Working backwards from the IVD, split each feeding event's edge list into smaller, nested edge lists, ranging in length from 1 to `r days` days long.
+```{r}
+daysBack <- c(1, 2, 5, 10, 15, 30)
+names(daysBack) <- as.character(daysBack)
+nestFun <- function(dataToSplit){
+  map_dfr(daysBack, ~{dataToSplit %>%
+      filter(daysBeforeIVD <= .x)}, # remove all days longer ago than the current daysBack value
+      .id = "daysBack")
+}
+feedingEdges_nested <- map(feedingEdges, nestFun) %>%
+  map(., ~.x %>% mutate(daysBack = as.numeric(daysBack)))
+flightEdges_nested <- map(flightEdges, nestFun) %>%
+  map(., ~.x %>% mutate(daysBack = as.numeric(daysBack)))
+```
+
+7.  Make networks for each of these.
+```{r}
+# Use group_split to get truly nested lists
+feedingEdges_nested <- map(feedingEdges_nested, ~.x %>% group_by(daysBack) %>% group_split(.keep  = T))
+flightEdges_nested <- map(flightEdges_nested, ~.x %>% group_by(daysBack) %>% group_split(.keep  = T))
+
+# Now actually make networks. Going to need, effectively, a nested call to `map` here.
+feedingEdges_graphs <- map(feedingEdges_nested, ~vultureUtils::makeGraphsList(.x)$graphs)
+flightEdges_graphs <- map(flightEdges_nested, ~vultureUtils::makeGraphsList(.x)$graphs)
+
+# Note that these don't have the number of days extracted. Need to extract those separately.
+getNDays <- function(x){
+  map(x, "daysBack") %>%
+    map_dbl(unique)
+}
+nDays_feeding <- map(feedingEdges_nested, getNDays)
+nDays_flight <- map(flightEdges_nested, getNDays)
+```
+
+8.  For each network, get a list of the individuals present in the largest connected component.
+
+9.  ?? not sure about this step. Aggregate the data in some sort of tidy way so that I can compare the `participants` vector to the vector of individuals present in each LCC for each network.
 
 ## NEXT STEPS:
 
