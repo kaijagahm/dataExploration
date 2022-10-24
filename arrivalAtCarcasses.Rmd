@@ -896,14 +896,14 @@ lccProportionsFunction <- function(whichEvent, days){
   
   outList <- list("propData" = out,
                   "participants" = participants,
-                  # "feedingEdges" = feedingEdges,
-                  # "flightEdges" = flightEdges,
-                  # "feedingEdges_nested" = feedingEdges_nested,
-                  # "flightEdges_nested" = flightEdges_nested,
-                  # "feedingEdges_graphs" = feedingEdges_graphs,
-                  # "flightEdges_graphs" = flightEdges_graphs,
-                  # "nDays_feeding" = nDays_feeding,
-                  #"nDays_flight" = nDays_flight
+                  "feedingEdges" = feedingEdges,
+                  "flightEdges" = flightEdges,
+                  "feedingEdges_nested" = feedingEdges_nested,
+                  "flightEdges_nested" = flightEdges_nested,
+                  "feedingEdges_graphs" = feedingEdges_graphs,
+                  "flightEdges_graphs" = flightEdges_graphs,
+                  "nDays_feeding" = nDays_feeding,
+                  "nDays_flight" = nDays_flight
                   )
   cat("Retrieving and computing data for feeding event #", whichEvent, "\n")
   return(outList)
@@ -935,7 +935,7 @@ ninetyPerCent <- propData %>%
   slice(1)
 ```
 
-Make a boxplot:
+Make a jitter plot:
 ```{r}
 nData <- ninetyPerCent %>%
   group_by(situation) %>%
@@ -945,9 +945,10 @@ nData <- ninetyPerCent %>%
 ninetyPerCent %>%
   ggplot(aes(x = situation, y = daysBack, fill = situation))+
   geom_boxplot()+
+  geom_jitter(width = 0.1, size = 3, alpha = 0.7)+
   theme_minimal()+
-  ylab("#days for 90% in network")+
-  xlab("Behavioral situation")+
+  ylab("# days for 90% in network")+
+  xlab("")+
   theme(legend.position = "none")+
   theme(text = element_text(size = 20))+
   geom_text(data = nData, aes(y = 0, label = paste("n =", n, "feeding events")))
