@@ -269,7 +269,9 @@ plotsMax <- map2(eventsDat, eventsList, ~{
     geom_vline(aes(xintercept = .y$datetime[1]))+
     theme_minimal()+
     ylim(0, 5)+
-    theme(legend.position = "none")
+    theme(legend.position = "none")+
+    ylab("Distance from carcass (km)")+
+    xlab("")
 })
 
 suppressWarnings(walk(plotsMax, print)) # have to suppress warnings because a lot of data will be cut off and ggplot will get loud about it. And no, I can't just filter the data beforehand, because then geom_line will join the points together instead of running them off the page. Trust me, I've throught this one through.
@@ -328,7 +330,10 @@ plots24 <- map2(eventsDat, eventsList, ~{
     geom_vline(aes(xintercept = .y$datetime[1]))+
     theme_minimal()+
     ylim(0, 5)+
-    theme(legend.position = "none")
+    theme(legend.position = "none")+
+    theme(text = element_text(size = 16))+
+    ylab("Distance from carcass (km)")+
+    xlab("")
 })
 
 suppressWarnings(walk2(plots24[toView], toView, ~print(.x + ggtitle(paste("Feeding event #", .y)))))
