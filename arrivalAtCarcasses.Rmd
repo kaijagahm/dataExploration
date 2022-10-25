@@ -164,7 +164,25 @@ Now that we have that data, we critically need access to the feeding station loc
 ```{r include = F}
 feedingStations <- read.csv("data/feeding_station_south_coordinates.xlsx - Sheet1.csv")
 head(feedingStations)
+```
 
+Plot feeding stations
+```{r}
+bg <- ne_countries(country = c("israel", "palestine"), returnclass = "sf")
+fssf <- feedingStations %>%
+  sf::st_as_sf(coords = c("ITM_E", "ITM_N"), remove = F) %>%
+  sf::st_set_crs(6991) %>%
+  sf::st_transform("WGS84")
+
+ggplot(bg)+
+  geom_sf(data = bg)+
+  geom_sf(data = fssf, color = "blue", alpha = 0.5, size = 4)+
+  theme_minimal()+
+  ylim(29.4, 31.6)
+```
+
+
+```{r}
 # Are we going to be able to join these by name? I am not optimistic...
 feedEvents$feeding_station %in% feedingStations$Feeding_station # awesome!!! oh my gosh.
 
@@ -451,10 +469,8 @@ firsts <- firstDetections %>%
 ```
 
 ```{r}
-firsts
 firstsLong <- firsts %>%
   pivot_longer(cols = c(detection, visit), names_to = "type", values_to = "hours")
-firstsLong
   
 firstsLong %>%
   ggplot(aes(x = hours, col = type, fill = type))+
@@ -467,7 +483,7 @@ firstsLong %>%
   scale_fill_manual(name = "", values = c("lightblue", "#FCA18E"))+
   theme_classic()+
   ylab("Frequency")+
-  xlab("Time to first visit (hours)")+
+  xlab("Time (hours)")+
   theme(text = element_text(size = 20))
 ```
 
@@ -661,9 +677,10 @@ p
 anim <- p + 
   transition_reveal(along = hour)+
   ease_aes('linear')+
-  ggtitle("Hour: {frame_along}")
+  ggtitle("Hour: {frame_along}")+
+  NULL
+anim
 
-gganimate::animate(anim, nframes = length(unique(df_all$hour)), fps = 10) # XXX error here--come back to this.
 gganimate::anim_save("data/carcassAnimation.gif", anim)
 ```
 
@@ -742,6 +759,70 @@ dfCombined %>% # XXX COME BACK TO THIS--NEED TO FILTER OUT THE DETECTIONS THAT A
   xlab("Rank order (detections)")+
   theme(legend.position = "none")+
   theme(text = element_text(size = 20))
+
+# What about *relative* detection order and rank order?
+dfCombined %>% # XXX COME BACK TO THIS--NEED TO FILTER OUT THE DETECTIONS THAT ARE ALSO VISITS
+  group_by(eventID) %>%
+  mutate(relative_order_detection = order_detection/max(order_detection, na.rm = T),
+         relative_order_visit = order_visit/max(order_visit, na.rm = T)) %>%
+  ggplot(aes(x = relative_order_detection, y = relative_order_visit, col = factor(eventID)))+
+  geom_point(alpha = 0.5, size = 2)+
+  geom_smooth(method = "lm", se = F, size = 0.5)+
+  theme_minimal()+
+  ylab("Relative rank order (visits)")+
+  xlab("Relative rank order (detections)")+
+  theme(legend.position = "none")+
+  theme(text = element_text(size = 20))
+```
+How consistent is individual normalized rank order across feeding events?
+
+```{r}
+dfCombined <- dfCombined %>%
+  group_by(eventID) %>%
+  mutate(relative_order_detection = order_detection/max(order_detection, na.rm = T),
+         relative_order_visit = order_visit/max(order_visit, na.rm = T)) %>%
+  ungroup()
+
+byIndiv <- dfCombined %>%
+  group_by(trackId) %>%
+  summarize(mn_order_detection = mean(order_detection, na.rm = T),
+            sd_order_detection = sd(order_detection, na.rm = T),
+            mn_order_visit = mean(order_visit, na.rm = T),
+            sd_order_visit = sd(order_visit, na.rm = T),
+            mn_relative_order_detection = mean(relative_order_detection, na.rm = T),
+            sd_relative_order_detection = sd(relative_order_detection, na.rm = T),
+            mn_relative_order_visit = mean(relative_order_visit, na.rm = T),
+            sd_relative_order_visit = sd(relative_order_visit, na.rm = T))
+
+head(byIndiv)
+
+# boxplot
+ord_det <- dfCombined %>% group_by(trackId) %>% summarize(mn_det = mean(relative_order_detection, na.rm = T)) %>% arrange(mn_det) %>% pull(trackId)
+ord_vis <- dfCombined %>% group_by(trackId) %>% summarize(mn_vis = mean(relative_order_visit, na.rm = T)) %>% arrange(mn_vis) %>% pull(trackId)
+
+dfCombined %>%
+  mutate(trackId = factor(trackId, levels = ord_det)) %>%
+  ggplot(aes(x = trackId, y = relative_order_detection))+
+  geom_boxplot()+
+  geom_jitter(position=position_jitter(0), alpha = 0.5)+
+  theme(panel.grid = element_blank())+
+  ylab("Relative rank order (detection)")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  xlab("Individual")+
+  ggtitle("Relative rank order (detections)")
+
+dfCombined %>%
+  mutate(trackId = factor(trackId, levels = ord_vis)) %>%
+  ggplot(aes(x = trackId, y = relative_order_visit))+
+  geom_boxplot()+
+  geom_jitter(position=position_jitter(0), alpha = 0.5)+
+  theme(panel.grid = element_blank())+
+  ylab("Relative rank order (visit)")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  xlab("Individual")+
+  ggtitle("Relative rank order (visits)")
 ```
 
 There is usually a relationship between detections and visits--i.e. those that detect the carcass later are also later to visit. But this isn't always the case--in a few cases, there seems to be a negative relationship (those that first detect the carcass visit later than those that detect it later.)
@@ -751,8 +832,6 @@ There is usually a relationship between detections and visits--i.e. those that d
 What is the time scale over which we can make a network such that 90% of the individuals that fed at the carcass are included in the largest connected component?
 
 The context here is that if we want to run a diffusion analysis, we have to determine which network to run it ON. The actual running of the procedure is pretty straightforward. Different timescales may be meaningful for information transmission in different behavioral contexts. So let's determine which timescale is meaningful for each one.
-
-Pseudocode:
 
 ```{r}
 # before map:
@@ -814,7 +893,7 @@ lccProportionsFunction <- function(whichEvent, days){
                                               roostPolygons = roostPolygons, 
                                               roostBuffer = 50, 
                                               consecThreshold = 2, 
-                                              distThreshold = 250) %>%
+                                              distThreshold = 1000) %>%
     mutate(minDate = lubridate::as_date(minTimestamp),
            maxDate = lubridate::as_date(maxTimestamp))
   
@@ -913,8 +992,8 @@ lccProportionsFunction <- function(whichEvent, days){
 Actually run the above function for all the feeding events, to collect data. (This part takes a while.)
 
 ```{r}
-# data_allEvents <- map(1:length(eventsList), ~{lccProportionsFunction(whichEvent = .x, days = 60)})
-# save(data_allEvents, file = "data/data_allEvents.Rda")
+data_allEvents <- map(1:length(eventsList), ~{lccProportionsFunction(whichEvent = .x, days = 60)})
+save(data_allEvents, file = "data/data_allEvents.Rda")
 load("data/data_allEvents.Rda")
 
 # Get just the proportion data
