@@ -244,6 +244,7 @@ nIndivsDaily %>%
   geom_vline(data = nIndivsDaily, aes(xintercept = deathDate))+
   theme(legend.position = "none")
 ```
+
 Create flight networks, daily.
 ```{r}
 # For each death, split into days
