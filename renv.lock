@@ -494,10 +494,10 @@
     },
     "e1071": {
       "Package": "e1071",
-      "Version": "1.7-11",
+      "Version": "1.7-12",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "fc02aa712f8600f7da17f44989646a21",
+      "Hash": "0d776df7577206e100c2c4b508208b10",
       "Requirements": [
         "class",
         "proxy"
@@ -1885,13 +1885,14 @@
     },
     "vctrs": {
       "Package": "vctrs",
-      "Version": "0.4.2",
+      "Version": "0.5.0",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "0e3dfc070b2a8f0478fcdf86fb33355d",
+      "Hash": "001fd6a5ebfff8316baf9fb2b5516dc9",
       "Requirements": [
         "cli",
         "glue",
+        "lifecycle",
         "rlang"
       ]
     },
@@ -1947,8 +1948,8 @@
       "RemoteRepo": "vultureUtils",
       "RemoteUsername": "kaijagahm",
       "RemoteRef": "HEAD",
-      "RemoteSha": "5893b53c2e28b580b53bef17cfdf5c648b02d038",
-      "Hash": "a6e2d2d1fdf35f3a95de2252dbac4939",
+      "RemoteSha": "738b38b002df7c8df0affa7feea84f2b393eebce",
+      "Hash": "cbcec75f7345c2ddb824a71b054e794a",
       "Requirements": [
         "animation",
         "checkmate",
