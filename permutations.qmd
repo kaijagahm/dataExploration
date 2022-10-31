@@ -20,7 +20,8 @@ datAnnot <- feather::read_feather("data/datAnnot.feather")
 # make this into an sf object:
 datAnnot <- datAnnot %>%
   sf::st_as_sf(coords = c("location_long.1", "location_lat.1")) %>%
-  sf::st_set_crs("WGS84")
+  sf::st_set_crs("WGS84") %>%
+  mutate(timeOnly = stringr::str_extract(as.character(timestamp), "[0-9]{2}:[0-9]{2}:[0-9]{2}"))
 roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
   sf::st_transform("WGS84")
 ```
@@ -108,10 +109,58 @@ feeding_uw <- map(feedingEdges, ~vultureUtils::makeGraph(.x, weighted = FALSE))
 
 For now, I'm just going to work with the 2021-2022 breeding season. Later, can expand the analyses to the other seasons.
 
-## Setup
-```{r}
+Also for now, I'm going to restrict it to individuals that were present on all of the days. Just simpler to think about.
 
+## Setup
+
+```{r}
+# Get restricted data: only individuals that were present on all of the days.
+maxDates <- max(dates$b_21_22$nUniqueDates)
+whichIndivs <- dates$b_21_22 %>%
+  filter(nUniqueDates == maxDates) %>%
+  pull(trackId) %>%
+  unique()
+b_21_22_restricted <- seasons$b_21_22 %>%
+  filter(trackId %in% whichIndivs)
 ```
+
+Subset the data to avoid going crazy (many fewer columns):
+
+```{r}
+b_21_22_restricted <- b_21_22_restricted %>%
+  dplyr::select(trackId, timestamp, dateOnly, ground_speed, heading, height_above_msl, location_lat, location_long, geometry)
+```
+
+Separate into a list of individuals and permute each individual
+
+```{r}
+indivs <- b_21_22_restricted %>%
+  group_by(trackId) %>%
+  group_split(.keep = T)
+
+permutedIndivs <- map(indivs, ~{
+  # setup
+  .x <- .x %>%
+    mutate(whichDay = as.numeric(dateOnly - min(dateOnly)))
+  
+  # permute
+  permutation <- sample(unique(.x$whichDay), 
+                        size = length(unique(.x$whichDay)), 
+                        replace = F)
+  permutationDF <- data.frame(whichDay = unique(.x$whichDay),
+                              permutationDay = permutation)
+  # join permutations
+  .x <- .x %>%
+    left_join(permutationDF) %>%
+    mutate(permutationDate = min(dateOnly) + permutationDay) %>%
+    mutate(permutationTimestamp = lubridate::ymd_hms(paste(as.character(permutationDate),
+                                                           timeOnly)))
+  # return
+  return(.x)
+})
+```
+
+
 
 ## Unrestricted permutation
 ### Shuffle data
