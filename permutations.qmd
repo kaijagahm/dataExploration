@@ -1,0 +1,32 @@
+---
+title: "Permutations"
+format: html
+editor: source
+---
+
+# Setup
+## Load packages
+
+## Load annotated data
+
+## Subset to just one breeding season
+
+## Make a plot of individuals' representation in the data
+
+# Observed networks (as a basis for comparison)
+## Create networks
+## Measure networks
+
+# Orr-style permutations (shuffling days)
+## Unrestricted permutation
+## Distance-restricted permutation
+### Shuffle data
+### Create networks
+### Measure networks
+
+# Noa-style permutations (shifting entire tracks)
+
+## Determining number of days to shift (min, max)
+### Min: Spatial autocorrelation analysis
+## Create networks
+## Measure networks
