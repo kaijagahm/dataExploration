@@ -6,19 +6,117 @@ editor: source
 
 # Setup
 ## Load packages
+```{r}
+library(tidyverse)
+library(vultureUtils)
+library(igraph)
+library(feather)
+library(sf)
+```
 
 ## Load annotated data
+```{r}
+datAnnot <- feather::read_feather("data/datAnnot.feather")
+# make this into an sf object:
+datAnnot <- datAnnot %>%
+  sf::st_as_sf(coords = c("location_long.1", "location_lat.1")) %>%
+  sf::st_set_crs("WGS84")
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
+  sf::st_transform("WGS84")
+```
 
-## Subset to just one breeding season
+## Subset to seasons
+```{r}
+# Breeding season: December 2020-June 2021
+b_20_21 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2020-12-01 00:00"),
+         timestamp < lubridate::ymd_hm("2021-07-01 00:00"))
 
-## Make a plot of individuals' representation in the data
+# Non-breeding season: July 2021-November 2021
+nb_21 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2021-07-01 00:00"),
+         timestamp < lubridate::ymd_hm("2021-12-01 00:00"))
+
+# Breeding season: December 2021-June 2022
+b_21_22 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2021-12-01 00:00"),
+         timestamp < lubridate::ymd_hm("2022-07-01 00:00"))
+
+# Non-breeding season: July 2022-November 2022 # XXX this one's incomplete as of 2022-10-31
+nb_22 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2022-07-01 00:00"),
+         timestamp < lubridate::ymd_hm("2022-12-01 00:00"))
+
+# List them
+seasons <- list("b_20_21" = b_20_21, "nb_21" = nb_21, "b_21_22" = b_21_22, "nb_22" = nb_22)
+```
+
+### Characterize each season
+```{r}
+# How many observations and how many unique individuals?
+nObs <- map_dbl(seasons, nrow)
+nUniqueIndivs <- map_dbl(seasons, ~.x %>% pull(trackId) %>% unique() %>% length())
+
+# Get unique dates for each
+dates <- map(seasons, ~{.x %>%
+    sf::st_drop_geometry() %>%
+    dplyr::select(trackId, dateOnly) %>%
+    distinct() %>%
+    group_by(trackId) %>%
+    mutate(nUniqueDates = length(unique(dateOnly))) %>%
+    ungroup()})
+```
+
+### Plot individuals' representation
+
+```{r}
+plots <- map2(.x = dates, .y = names(dates), ~{
+  p <- .x %>%
+    mutate(trackId = forcats::fct_reorder(trackId, nUniqueDates, max)) %>%
+    ggplot(aes(x = trackId, y = dateOnly))+
+    geom_point(size = 0.7)+
+    coord_flip()+
+    theme_classic()+
+    ggtitle(.y)
+})
+walk(plots, print)
+```
 
 # Observed networks (as a basis for comparison)
+
+```{r}
+# Get edge lists
+flightEdges <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350))
+feedingEdges <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2))
+```
+
 ## Create networks
+
+```{r}
+# Flight
+flight_w <- map(flightEdges, ~vultureUtils::makeGraph(.x, weighted = TRUE))
+flight_uw <- map(flightEdges, ~vultureUtils::makeGraph(.x, weighted = FALSE))
+
+# Feeding
+feeding_w <- map(feedingEdges, ~vultureUtils::makeGraph(.x, weighted = TRUE))
+feeding_uw <- map(feedingEdges, ~vultureUtils::makeGraph(.x, weighted = FALSE))
+```
+
 ## Measure networks
 
 # Orr-style permutations (shuffling days)
+
+For now, I'm just going to work with the 2021-2022 breeding season. Later, can expand the analyses to the other seasons.
+
+## Setup
+```{r}
+
+```
+
 ## Unrestricted permutation
+### Shuffle data
+### Create networks
+### Measure networks
 ## Distance-restricted permutation
 ### Shuffle data
 ### Create networks
