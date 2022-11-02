@@ -1,0 +1,79 @@
+---
+title: "Roost classifications"
+format: html
+editor: source
+---
+
+Load data
+```{r}
+load("data/datAnnotCleaned.Rda")
+```
+
+Get roost classifications
+```{r}
+roosts <- vultureUtils::get_roosts_df(df = datAnnotCleaned, id = "trackId")
+simplifiedRoosts <- roosts %>%
+  dplyr::select(trackId, location_long, location_lat, roost_date)
+
+# double-check that we just have one roost per individual per night
+simplifiedRoosts %>%
+  group_by(trackId, roost_date) %>%
+  summarize(n = n()) %>%
+  pull(n) %>%
+  table()
+```
+
+Make some plots
+
+```{r}
+simplifiedRoosts %>%
+  ggplot(aes(x = location_long, y = location_lat))+
+  geom_point(alpha = 0.2)+
+  theme_classic()+
+  theme(legend.position = "none")
+```
+
+What if we facet by year?
+```{r}
+simplifiedRoosts <- simplifiedRoosts %>%
+  mutate(year = lubridate::year(roost_date))
+
+simplifiedRoosts %>%
+  ggplot(aes(x = location_long, y = location_lat))+
+  geom_point(alpha = 0.2)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  facet_wrap(~year)
+```
+
+Can't do hierarchical clustering because there are way, way too many points. 
+Attempt k-means clustering
+```{r}
+# Compute a distance matrix for all the roost locations
+roostLocs <- simplifiedRoosts %>%
+  dplyr::select(location_long, location_lat)
+clusters <- kmeans(x = roostLocs, centers = 50)
+centers <- clusters$centers
+assignments <- clusters$cluster
+
+simplifiedRoosts <- simplifiedRoosts %>%
+  mutate(cluster = assignments)
+```
+
+```{r}
+simplifiedRoosts %>%
+  ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
+  geom_point(alpha = 0.5)+
+  theme_classic()+
+  theme(legend.position = "none")
+```
+Okay, we could do k-means clustering with any arbitrary number and get *some* result. But I'm not sure how meaningful that is.
+
+A key thing to figure out is whether these points that are far from all the others are *actually* far away (i.e. the bird found a new roost site) or whether this is due to errors. If errors, then we *want* them to be grouped in with existing roost sites. But if they're actually far away, then we *don't* want them to be grouped with existing roost sites.
+
+I am not sure how to tell the difference between these two cases!
+
+What if, instead, we did this iteratively. First, deal with the outlier points. 
+1. "global outliers" are > 2km from any other point in the dataset (i.e. a totally unique roost site)
+2. "local outliers" are >2km from any other point within 1 month (or some other arbitrary time interval?). Not sure how to deal with these.
+3. Remove global and local outliers. Then apply clustering (k-means??) on the remaining data.
