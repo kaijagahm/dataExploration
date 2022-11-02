@@ -23,15 +23,11 @@ library(sf)
 ```
 
 ```{r}
-datAnnot <- feather::read_feather("data/datAnnot.feather")
+datAnnotCleaned <- load("data/datAnnotCleaned.Rda")
+datAnnotCleaned <- sf::st_drop_geometry(datAnnotCleaned)
 mask <- sf::st_read("data/CutOffRegion.kml")
 roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
   sf::st_transform("WGS84")
-
-#datAnnotCleaned <- vultureUtils::cleanData(dataset = datAnnot, mask = mask, inMaskThreshold = 0.33, removeVars = F)
-#datAnnotCleaned <- sf::st_drop_geometry(datAnnotCleaned) #XXX should make this part of the cleanData function, with option to return as an sf object if desired.
-#feather::write_feather(datAnnotCleaned, "data/datAnnotCleaned.feather")
-datAnnotCleaned <- feather::read_feather("data/datAnnotCleaned.feather")
 
 # Load the most recent version of the who's who
 ww <- read.csv("data/whoswho_vultures04oct22_new.xlsx - all gps tags.csv", na.strings = c("NA", "", " "))
