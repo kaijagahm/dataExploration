@@ -78,27 +78,6 @@
       "Hash": "e9c08b94391e9f3f97355841229124f2",
       "Requirements": []
     },
-    "RcppArmadillo": {
-      "Package": "RcppArmadillo",
-      "Version": "0.11.4.0.1",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "411952f0aca6398392dad34f225753b9",
-      "Requirements": [
-        "Rcpp"
-      ]
-    },
-    "RcppEigen": {
-      "Package": "RcppEigen",
-      "Version": "0.3.3.9.2",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "4c86baed78388ceb06f88e3e9a1d87f5",
-      "Requirements": [
-        "Matrix",
-        "Rcpp"
-      ]
-    },
     "RgoogleMaps": {
       "Package": "RgoogleMaps",
       "Version": "1.4.5.3",
@@ -594,6 +573,14 @@
         "withr"
       ]
     },
+    "foreign": {
+      "Package": "foreign",
+      "Version": "0.8-82",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "32b25c97ce306a760c4d9f787991b5d9",
+      "Requirements": []
+    },
     "fs": {
       "Package": "fs",
       "Version": "1.5.2",
@@ -682,30 +669,6 @@
         "tweenr"
       ]
     },
-    "ggforce": {
-      "Package": "ggforce",
-      "Version": "0.4.1",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "a06503f54e227f79b45a72df2946a2d2",
-      "Requirements": [
-        "MASS",
-        "Rcpp",
-        "RcppEigen",
-        "cli",
-        "ggplot2",
-        "gtable",
-        "lifecycle",
-        "polyclip",
-        "rlang",
-        "scales",
-        "systemfonts",
-        "tidyselect",
-        "tweenr",
-        "vctrs",
-        "withr"
-      ]
-    },
     "ggmap": {
       "Package": "ggmap",
       "Version": "3.0.0",
@@ -749,46 +712,6 @@
         "scales",
         "tibble",
         "withr"
-      ]
-    },
-    "ggraph": {
-      "Package": "ggraph",
-      "Version": "2.1.0",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "62672fd99df5df5814f442e9cd5ec29b",
-      "Requirements": [
-        "MASS",
-        "Rcpp",
-        "cli",
-        "digest",
-        "dplyr",
-        "ggforce",
-        "ggplot2",
-        "ggrepel",
-        "graphlayouts",
-        "gtable",
-        "igraph",
-        "lifecycle",
-        "rlang",
-        "scales",
-        "tidygraph",
-        "vctrs",
-        "viridis",
-        "withr"
-      ]
-    },
-    "ggrepel": {
-      "Package": "ggrepel",
-      "Version": "0.9.1",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "08ab869f37e6a7741a64ab9069bcb67d",
-      "Requirements": [
-        "Rcpp",
-        "ggplot2",
-        "rlang",
-        "scales"
       ]
     },
     "gifski": {
@@ -861,28 +784,6 @@
         "rlang",
         "tibble",
         "vctrs"
-      ]
-    },
-    "graphlayouts": {
-      "Package": "graphlayouts",
-      "Version": "0.8.3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "cd384a3c21f72b24ae42ffb322bf6b16",
-      "Requirements": [
-        "Rcpp",
-        "RcppArmadillo",
-        "igraph"
-      ]
-    },
-    "gridExtra": {
-      "Package": "gridExtra",
-      "Version": "2.3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "7d7f283939f563670a697165b2cf5560",
-      "Requirements": [
-        "gtable"
       ]
     },
     "gtable": {
@@ -1120,6 +1021,18 @@
       "Hash": "b3d98a967ec17c80f795719529812fa0",
       "Requirements": []
     },
+    "maptools": {
+      "Package": "maptools",
+      "Version": "1.1-5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "fc60ed5a80198b1d049f5209322c875e",
+      "Requirements": [
+        "foreign",
+        "lattice",
+        "sp"
+      ]
+    },
     "memoise": {
       "Package": "memoise",
       "Version": "2.0.1",
@@ -1270,14 +1183,6 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "03b7076c234cb3331288919983326c55",
-      "Requirements": []
-    },
-    "polyclip": {
-      "Package": "polyclip",
-      "Version": "1.10-4",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "66bbfa06f78108ee967220643596c91e",
       "Requirements": []
     },
     "prettyunits": {
@@ -1446,16 +1351,6 @@
         "rmarkdown",
         "rstudioapi",
         "withr"
-      ]
-    },
-    "reshape": {
-      "Package": "reshape",
-      "Version": "0.8.9",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "603d56041d7d4fa3ceb1864b3f6ee6b1",
-      "Requirements": [
-        "plyr"
       ]
     },
     "rgdal": {
@@ -1695,16 +1590,6 @@
       "Hash": "34c16f1ef796057bfa06d3f4ff818a5d",
       "Requirements": []
     },
-    "systemfonts": {
-      "Package": "systemfonts",
-      "Version": "1.0.4",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "90b28393209827327de889f49935140a",
-      "Requirements": [
-        "cpp11"
-      ]
-    },
     "terra": {
       "Package": "terra",
       "Version": "1.6-17",
@@ -1729,25 +1614,6 @@
         "pkgconfig",
         "rlang",
         "vctrs"
-      ]
-    },
-    "tidygraph": {
-      "Package": "tidygraph",
-      "Version": "1.2.2",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "ae8f3697fc4a865f1074f4fdebe6b1c5",
-      "Requirements": [
-        "R6",
-        "cli",
-        "cpp11",
-        "dplyr",
-        "igraph",
-        "magrittr",
-        "pillar",
-        "rlang",
-        "tibble",
-        "tidyr"
       ]
     },
     "tidyr": {
@@ -1896,18 +1762,6 @@
         "rlang"
       ]
     },
-    "viridis": {
-      "Package": "viridis",
-      "Version": "0.6.2",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "ee96aee95a7a563e5496f8991e9fde4b",
-      "Requirements": [
-        "ggplot2",
-        "gridExtra",
-        "viridisLite"
-      ]
-    },
     "viridisLite": {
       "Package": "viridisLite",
       "Version": "0.4.1",
@@ -1948,23 +1802,23 @@
       "RemoteRepo": "vultureUtils",
       "RemoteUsername": "kaijagahm",
       "RemoteRef": "HEAD",
-      "RemoteSha": "738b38b002df7c8df0affa7feea84f2b393eebce",
-      "Hash": "cbcec75f7345c2ddb824a71b054e794a",
+      "RemoteSha": "7d9afa722ba570fac6efcd79ce98389f61d0fc9d",
+      "Hash": "471171ca4f4e1a7b1db323fed86b2d3f",
       "Requirements": [
         "animation",
         "checkmate",
         "data.table",
         "dplyr",
         "geosphere",
-        "ggplot2",
-        "ggraph",
         "igraph",
         "lubridate",
         "magrittr",
+        "maptools",
         "move",
-        "reshape",
+        "purrr",
         "rlang",
         "sf",
+        "sp",
         "spatsoc",
         "tibble",
         "tidyr"
