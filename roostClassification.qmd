@@ -4,6 +4,13 @@ format: html
 editor: source
 ---
 
+Load packages
+```{r}
+library(vultureUtils)
+library(tidyverse)
+library(factoextra) # https://www.datanovia.com/en/lessons/determining-the-optimal-number-of-clusters-3-must-know-methods/#elbow-method
+```
+
 Load data
 ```{r}
 load("data/datAnnotCleaned.Rda")
@@ -68,6 +75,20 @@ simplifiedRoosts %>%
   theme(legend.position = "none")
 ```
 Okay, we could do k-means clustering with any arbitrary number and get *some* result. But I'm not sure how meaningful that is.
+
+Let's see if there's any clear answer for the number of clusters. Because this is hard to run on all the data at a time, I'm going to divide it by year.
+
+```{r}
+years <- simplifiedRoosts %>%
+  dplyr::select(year, location_long, location_lat) %>%
+  group_by(year) %>%
+  group_split(.keep = F)
+  
+
+map(years, ~factoextra::fviz_nbclust(.x, kmeans, k.max = 20, method = "silhouette", nboot = 25))
+```
+
+Interesting. This method consistently picks out a very small number of clusters, which suggests to me that clustering by this method is probably not the way to go. Clustering fundamentally seeks to address a different problem than we're dealing with here. 
 
 A key thing to figure out is whether these points that are far from all the others are *actually* far away (i.e. the bird found a new roost site) or whether this is due to errors. If errors, then we *want* them to be grouped in with existing roost sites. But if they're actually far away, then we *don't* want them to be grouped with existing roost sites.
 
