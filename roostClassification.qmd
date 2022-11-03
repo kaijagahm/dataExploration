@@ -11,7 +11,7 @@ library(tidyverse)
 library(gganimate)
 library(dendextend)
 library(sf)
-library(clues)
+library(fpc)
 library(factoextra) # https://www.datanovia.com/en/lessons/determining-the-optimal-number-of-clusters-3-must-know-methods/#elbow-method
 ```
 
@@ -48,6 +48,10 @@ What if we facet by year?
 ```{r}
 simplifiedRoosts <- simplifiedRoosts %>%
   mutate(year = lubridate::year(roost_date))
+
+years <- simplifiedRoosts %>%
+  group_by(year) %>%
+  group_split(.keep = T)
 
 simplifiedRoosts %>%
   ggplot(aes(x = location_long, y = location_lat))+
@@ -131,8 +135,10 @@ testDF <- years[[2]] %>%
   sf::st_set_crs("WGS84")
 
 # Compute pairwise distances between points
-distanceMatrix <- sf::st_distance(testDF, testDF) %>% # this takes a really really long time with such a big dataset.
-  as.dist()
+# distanceMatrix <- sf::st_distance(testDF, testDF) %>% # this takes a really really long time with such a big dataset.
+#   as.dist()
+# save(distanceMatrix, file = "data/distanceMatrix.Rda")
+load("data/distanceMatrix.Rda")
 ```
 
 ```{r}
@@ -193,9 +199,6 @@ plot(nClusters~dists, type = "l")
 ```
 
 Continuing with a 1000m (1km) distance for roosts
-```{r}
-glimpse(testDF_withClusters)
-```
 
 Zoom in on just the center of the map and visualize the different numbers
 ```{r}
@@ -221,4 +224,82 @@ plots_numbers_zoom <- map(names(zoomData)[grepl("k_", names(zoomData))], ~{
 })
 walk(plots_numbers_zoom, print)
 ```
+## DBSCAN clustering
+
+I think DBSCAN will be a good clustering algorithm here because it can identify weird-shaped clusters, and because the parameters that need tuning can be biologically informed. It will also tell us which points are outliers, and we can then do whatever we want with outliers (e.g. assign them to their own roosts)
+
+```{r}
+set.seed(3)
+# eps is the reachability distance. I'm going to consider that to be 500m for starters. minPts for a core point is going to be 3.
+dbscan <- dbscan(distanceMatrix, eps = 750, method = "dist", MinPts = 3)
+
+data_dbscan <- bind_cols(testDF, "cluster" = dbscan$cluster) %>%
+  mutate(isOutlier = case_when(cluster == 0 ~ T,
+                               TRUE ~ F))
+
+# plot
+data_dbscan %>%
+  ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
+  geom_point(alpha = 0.3, aes(shape = isOutlier))+
+  scale_shape_manual(values = c(19, 4))+
+  theme_classic()+
+  theme(legend.position = "none")+
+  coord_equal()
+
+# zoom in
+data_dbscan %>%
+  filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6) %>%
+  ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
+  geom_point(alpha = 0.3, aes(shape = isOutlier))+
+  scale_shape_manual(values = c(19, 4))+
+  theme_classic()+
+  theme(legend.position = "none")+
+  coord_equal()
+```
+
+How many points are classified as outliers?
+
+```{r}
+nPoints <- nrow(testDF)
+dists <- c(100, 250, 500, 750, 1000, 1500)
+minpts <- 3
+dbscans_list <- vector(mode = "list", length = length(dists))
+for(i in 1:length(dists)){
+  dbscans_list[[i]] <- fpc::dbscan(distanceMatrix, eps = dists[i], method = "dist", MinPts = minpts)
+}
+data_dbscans <- map(dbscans_list, ~bind_cols(testDF, "cluster" = .x$cluster) %>%
+                      mutate(isOutlier = ifelse(cluster == 0, T, F)))
+nOutliers <- map_dbl(data_dbscans, ~.x %>%
+                       filter(cluster == 0) %>%
+                       nrow())
+outliers <- data.frame(dist = dists, 
+                       nOutliers = nOutliers,
+                       propOutliers = nOutliers/nPoints)
+
+outliers %>%
+  ggplot(aes(x = dist, y = propOutliers))+
+  geom_point(size = 2)+
+  geom_line()+
+  theme_classic()+
+  ylab("Proportion of points not included in a cluster")+
+  xlab("Neighborhood distance (m)")
+```
+Make zoomed-in plots for each dbscan distance
+```{r}
+zoomPlots <- map2(data_dbscans, dists, ~{
+  yr <- min(lubridate::year(.x$roost_date))
+  .x %>%
+    filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6) %>%
+    ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
+    geom_point(alpha = 0.3, aes(shape = isOutlier))+
+    scale_shape_manual(values = c(19, 4))+
+    theme_classic()+
+    theme(legend.position = "none")+
+    coord_equal()+
+    ggtitle(paste0("Year = ", yr, "; MinPts = ", minpts, "; eps = ", .y, "m"))
+})
+
+walk(zoomPlots, print)
+```
+
 
