@@ -8,6 +8,7 @@ Load packages
 ```{r}
 library(vultureUtils)
 library(tidyverse)
+library(gganimate)
 library(factoextra) # https://www.datanovia.com/en/lessons/determining-the-optimal-number-of-clusters-3-must-know-methods/#elbow-method
 ```
 
@@ -53,6 +54,25 @@ simplifiedRoosts %>%
   facet_wrap(~year)
 ```
 
+Just as an experiment, let's look at the roosts each day.
+
+```{r}
+anim <- simplifiedRoosts %>%
+  #filter(year == 2020) %>%
+  mutate(time = as.numeric(factor(roost_date))) %>%
+  ggplot(aes(x = location_long, y = location_lat, group = trackId))+
+  geom_point(size = 5, aes(col = factor(year)))+
+  theme_classic()+
+  scale_color_brewer(name = "Year", palette = "Dark2")+
+  #theme(legend.position = "none")+
+  transition_time(time)+
+  shadow_mark(color = "black", alpha = 0.1, size = 2)+
+  ggtitle("Roost locations over time")
+
+animate(anim, fps = 4)
+anim_save("data/roostLocations.gif", anim)
+```
+
 Can't do hierarchical clustering because there are way, way too many points. 
 Attempt k-means clustering
 ```{r}
@@ -83,7 +103,7 @@ years <- simplifiedRoosts %>%
   dplyr::select(year, location_long, location_lat) %>%
   group_by(year) %>%
   group_split(.keep = F)
-  
+
 
 map(years, ~factoextra::fviz_nbclust(.x, kmeans, k.max = 20, method = "silhouette", nboot = 25))
 ```
