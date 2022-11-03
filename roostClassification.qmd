@@ -12,6 +12,7 @@ library(gganimate)
 library(dendextend)
 library(sf)
 library(fpc)
+library(paletteer)
 library(factoextra) # https://www.datanovia.com/en/lessons/determining-the-optimal-number-of-clusters-3-must-know-methods/#elbow-method
 ```
 
@@ -241,7 +242,7 @@ data_dbscan <- bind_cols(testDF, "cluster" = dbscan$cluster) %>%
 data_dbscan %>%
   ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
   geom_point(alpha = 0.3, aes(shape = isOutlier))+
-  scale_shape_manual(values = c(19, 4))+
+  scale_shape_manual(values = c(19, 3))+
   theme_classic()+
   theme(legend.position = "none")+
   coord_equal()
@@ -251,7 +252,7 @@ data_dbscan %>%
   filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6) %>%
   ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
   geom_point(alpha = 0.3, aes(shape = isOutlier))+
-  scale_shape_manual(values = c(19, 4))+
+  scale_shape_manual(values = c(19, 3))+
   theme_classic()+
   theme(legend.position = "none")+
   coord_equal()
@@ -286,17 +287,19 @@ outliers %>%
 ```
 Make zoomed-in plots for each dbscan distance
 ```{r}
+set.seed(1)
 zoomPlots <- map2(data_dbscans, dists, ~{
   yr <- min(lubridate::year(.x$roost_date))
   .x %>%
     filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6) %>%
     ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
     geom_point(alpha = 0.3, aes(shape = isOutlier))+
-    scale_shape_manual(values = c(19, 4))+
+    scale_shape_manual(values = c(19, 3))+
     theme_classic()+
     theme(legend.position = "none")+
     coord_equal()+
-    ggtitle(paste0("Year = ", yr, "; MinPts = ", minpts, "; eps = ", .y, "m"))
+    ggtitle(paste0("Year = ", yr, "; MinPts = ", minpts, "; eps = ", .y, "m"))+
+    scale_color_paletteer_d("trekcolors::lcars_cardassian")
 })
 
 walk(zoomPlots, print)
