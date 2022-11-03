@@ -9,6 +9,9 @@ Load packages
 library(vultureUtils)
 library(tidyverse)
 library(gganimate)
+library(dendextend)
+library(sf)
+library(clues)
 library(factoextra) # https://www.datanovia.com/en/lessons/determining-the-optimal-number-of-clusters-3-must-know-methods/#elbow-method
 ```
 
@@ -98,7 +101,7 @@ Okay, we could do k-means clustering with any arbitrary number and get *some* re
 
 Let's see if there's any clear answer for the number of clusters. Because this is hard to run on all the data at a time, I'm going to divide it by year.
 
-```{r}
+```{r eval = F}
 years <- simplifiedRoosts %>%
   dplyr::select(year, location_long, location_lat) %>%
   group_by(year) %>%
@@ -118,3 +121,104 @@ What if, instead, we did this iteratively. First, deal with the outlier points.
 1. "global outliers" are > 2km from any other point in the dataset (i.e. a totally unique roost site)
 2. "local outliers" are >2km from any other point within 1 month (or some other arbitrary time interval?). Not sure how to deal with these.
 3. Remove global and local outliers. Then apply clustering (k-means??) on the remaining data.
+
+## Try hierarchical clustering
+
+```{r}
+?distm # default unit here is meters, which is what we want!
+testDF <- years[[2]] %>%
+  sf::st_as_sf(coords = c("location_long", "location_lat"), remove = F) %>%
+  sf::st_set_crs("WGS84")
+
+# Compute pairwise distances between points
+distanceMatrix <- sf::st_distance(testDF, testDF) %>% # this takes a really really long time with such a big dataset.
+  as.dist()
+```
+
+```{r}
+# Do clustering
+clust <- hclust(d = distanceMatrix, method = "complete")
+plot(clust, labels = F)
+
+# Cut the dendrogram into different numbers of clusters
+numberCuts <- as.data.frame(cutree(clust, k = 30:60))
+names(numberCuts) <- paste0("k_", names(numberCuts))
+
+# Alternatively, cut the dendrogram based on different distances
+distanceCuts <- as.data.frame(cutree(clust, h = c(250, 500, 1000, 2000)))
+names(distanceCuts) <- paste0("dist_", names(distanceCuts))
+
+# Create a data frame
+testDF_withClusters <- bind_cols(testDF, numberCuts, distanceCuts)
+```
+
+Make plots--numbers
+
+```{r}
+plots_numbers <- map(names(testDF_withClusters)[grepl("k_", names(testDF_withClusters))], ~{
+  n <- str_extract(.x, "[0-9]+")
+  testDF_withClusters %>%
+    ggplot(aes(x = location_long, y = location_lat, col = as.factor(.data[[.x]])))+
+    geom_point(alpha = 0.3)+
+    theme_classic()+
+    theme(legend.position = "none")+
+    coord_equal()+
+    ggtitle(paste0("Number of clusters = ", n))
+})
+walk(plots_numbers, print)
+```
+
+Make plots--distances
+
+```{r}
+plots_distances <- map(names(testDF_withClusters)[grepl("dist_", names(testDF_withClusters))], ~{
+  testDF_withClusters %>%
+    ggplot(aes(x = location_long, y = location_lat, col = as.factor(.data[[.x]])))+
+    geom_point(alpha = 0.3)+
+    theme_classic()+
+    theme(legend.position = "none")+
+    coord_equal()
+})
+walk(plots_distances, print)
+```
+
+Ok, if we cut the tree based on distances, what does the number of clusters look like?
+```{r}
+# number of clusters
+dists <- seq(100, 2000, by = 100)
+testDistanceCuts <- as.data.frame(cutree(clust, h = dists))
+nClusters <- map_dbl(testDistanceCuts, max)
+plot(nClusters~dists, type = "l")
+# This is not particularly helpful for selecting the distance. I suppose we could look at the elbow, which is a bit lower than 500m. 1000m seems like a potentially relevant distance, though, so I'm going to go with that for now, I guess? Note that even at a distance of 1000, we still get about 500 unique roosts.
+```
+
+Continuing with a 1000m (1km) distance for roosts
+```{r}
+glimpse(testDF_withClusters)
+```
+
+Zoom in on just the center of the map and visualize the different numbers
+```{r}
+zoomData <- testDF_withClusters %>%
+  filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6)
+
+zoomData %>%
+  ggplot(aes(x = location_long, y = location_lat, col = factor(k_30)))+
+  geom_point(alpha = 0.3)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  coord_equal()# there are obviously way too many unique clusters to color them all. Let's zoom in on the center of this and take a closer look.
+
+plots_numbers_zoom <- map(names(zoomData)[grepl("k_", names(zoomData))], ~{
+  n <- str_extract(.x, "[0-9]+")
+  zoomData %>%
+    ggplot(aes(x = location_long, y = location_lat, col = as.factor(.data[[.x]])))+
+    geom_point(alpha = 0.3)+
+    theme_classic()+
+    theme(legend.position = "none")+
+    coord_equal()+
+    ggtitle(paste0("Number of clusters = ", n))
+})
+walk(plots_numbers_zoom, print)
+```
+
