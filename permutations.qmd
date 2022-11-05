@@ -284,6 +284,16 @@ degreeDF %>%
   xlab("Degree") # for any of this to mean anything, need to include way more data, which means I need to make the functions go faster.
 ```
 
+XXX next to do:
+- use a smaller subset of the days (10 days? vs 60 that i have now) to test out benchmarking to get the code to run faster. 
+- change network code so that it includes all possible vertices. This one's really important, since it has a big effect on things like density.
+- dig more into how to benchmark code, in order to speed up the incredibly slow steps here. 
+- set up this project on the cluster so that I can run these things without wearing out my laptop
+- scale up to dealing with more data. I have to drastically improve the function performance if it's going to make sense to do this.
+
+- make roost networks! distance only, and cluster-based.
+- write a function to make roost networks based either on distance or on a vector of cluster assignments.
+
 
 ### Measure networks
 ## Distance-restricted permutation
