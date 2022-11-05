@@ -252,6 +252,38 @@ ggplot(data = densDF %>%
                filter(type == "observed"), aes(xintercept = density), col = "red")
 ```
 
+```{r}
+# degree distribution
+dd_p_flight <- map(flight_uw_permuted, ~enframe(degree(.x))) %>%
+  data.table::rbindlist(idcol = "iter") %>%
+  mutate(type = "permuted",
+         situation = "flight")
+
+dd_p_feeding <- map(feeding_uw_permuted, ~enframe(degree(.x))) %>%
+  data.table::rbindlist(idcol = "iter") %>%
+  mutate(type = "permuted",
+         situation = "feeding")
+
+dd_o_flight <- degree(flight_uw_obs) %>% 
+  enframe() %>% 
+  mutate(iter = 0, type = "observed", situation = "flight")
+
+dd_o_feeding <- degree(feeding_uw_obs) %>%
+  enframe() %>% 
+  mutate(iter = 0, type = "observed", situation = "feeding")
+
+degreeDF <- bind_rows(dd_p_flight, dd_o_flight, dd_p_feeding, dd_o_feeding)
+# XXX it will be important, when creating the edge lists, to go back and include all the possible individuals! This is pretty critical, actually.
+
+degreeDF %>%
+  ggplot(aes(x = value, col = type, group = iter))+
+  geom_density()+
+  facet_wrap(~situation, scales = "free")+
+  theme_classic()+
+  ylab("")+
+  xlab("Degree") # for any of this to mean anything, need to include way more data, which means I need to make the functions go faster.
+```
+
 
 ### Measure networks
 ## Distance-restricted permutation
