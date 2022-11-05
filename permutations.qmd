@@ -232,10 +232,24 @@ feeding_uw_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset, weighted = F)
 
 Network-level metrics
 ```{r}
+# density
 dens_p_flight <- map_dbl(flight_uw_permuted, igraph::edge_density)
 dens_p_feeding <- map_dbl(feeding_uw_permuted, igraph::edge_density)
 dens_o_flight <- edge_density(flight_uw_obs)
 dens_o_feeding <- edge_density(feeding_uw_obs)
+
+densDF <- data.frame(situation = c(rep("flight", length(dens_p_flight) + 1), rep("feeding", length(dens_p_feeding) + 1)),
+                     density = c(dens_p_flight, dens_o_flight, dens_p_feeding, dens_o_feeding),
+                     type = c(rep("permuted", length(dens_p_flight)), "observed", rep("permuted", length(dens_p_feeding)), "observed"))
+
+ggplot(data = densDF %>%
+         filter(type == "permuted"),
+       aes(x = density))+
+  geom_histogram()+
+  theme_classic()+
+  facet_wrap(~situation, scales = "free")+
+  geom_vline(data = densDF %>%
+               filter(type == "observed"), aes(xintercept = density), col = "red")
 ```
 
 
