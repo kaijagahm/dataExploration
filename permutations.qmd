@@ -12,6 +12,7 @@ library(vultureUtils)
 library(igraph)
 library(feather)
 library(sf)
+library(profvis) # to see what's slowing the code down
 ```
 
 ## Load annotated data
@@ -28,28 +29,30 @@ roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
 
 ## Subset to seasons
 ```{r}
-# Breeding season: December 2020-June 2021
-b_20_21 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2020-12-01 00:00"),
-         timestamp < lubridate::ymd_hm("2021-07-01 00:00"))
-
-# Non-breeding season: July 2021-November 2021
-nb_21 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2021-07-01 00:00"),
-         timestamp < lubridate::ymd_hm("2021-12-01 00:00"))
-
-# Breeding season: December 2021-June 2022
-b_21_22 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2021-12-01 00:00"),
-         timestamp < lubridate::ymd_hm("2022-07-01 00:00"))
-
-# Non-breeding season: July 2022-November 2022 # XXX this one's incomplete as of 2022-10-31
-nb_22 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2022-07-01 00:00"),
-         timestamp < lubridate::ymd_hm("2022-12-01 00:00"))
-
-# List them
-seasons <- list("b_20_21" = b_20_21, "nb_21" = nb_21, "b_21_22" = b_21_22, "nb_22" = nb_22)
+# # Breeding season: December 2020-June 2021
+# b_20_21 <- datAnnot %>%
+#   filter(timestamp > lubridate::ymd_hm("2020-12-01 00:00"),
+#          timestamp < lubridate::ymd_hm("2021-07-01 00:00"))
+# 
+# # Non-breeding season: July 2021-November 2021
+# nb_21 <- datAnnot %>%
+#   filter(timestamp > lubridate::ymd_hm("2021-07-01 00:00"),
+#          timestamp < lubridate::ymd_hm("2021-12-01 00:00"))
+# 
+# # Breeding season: December 2021-June 2022
+# b_21_22 <- datAnnot %>%
+#   filter(timestamp > lubridate::ymd_hm("2021-12-01 00:00"),
+#          timestamp < lubridate::ymd_hm("2022-07-01 00:00"))
+# 
+# # Non-breeding season: July 2022-November 2022 # XXX this one's incomplete as of 2022-10-31
+# nb_22 <- datAnnot %>%
+#   filter(timestamp > lubridate::ymd_hm("2022-07-01 00:00"),
+#          timestamp < lubridate::ymd_hm("2022-12-01 00:00"))
+# 
+# # List them
+# seasons <- list("b_20_21" = b_20_21, "nb_21" = nb_21, "b_21_22" = b_21_22, "nb_22" = nb_22)
+# save(seasons, file = "data/seasons.Rda")
+load("data/seasons.Rda")
 ```
 
 ### Characterize each season
@@ -80,34 +83,41 @@ plots <- map2(.x = dates, .y = names(dates), ~{
     theme_classic()+
     ggtitle(.y)
 })
-walk(plots, print)
+#walk(plots, print)
 ```
 
 # Observed networks (as a basis for comparison)
 
+## Get edge lists
+
 ```{r}
 # Get edge lists
-flightEdges <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350))
-feedingEdges <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2))
+# obs_flightEdges_bySeason <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350))
+# save(obs_flightEdges_bySeason, file = "data/obs_flightEdges_bySeason.Rda")
+load("data/obs_flightEdges_bySeason.Rda")
+# obs_feedingEdges_bySeason <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2))
+# save(obs_feedingEdges_bySeason, file = "data/obs_feedingEdges_bySeason.Rda")
+load("data/obs_feedingEdges_bySeason.Rda")
 ```
 
 ## Create networks
 
 ```{r}
 # Flight
-flight_w <- map(flightEdges, ~vultureUtils::makeGraph(.x, weighted = TRUE))
-flight_uw <- map(flightEdges, ~vultureUtils::makeGraph(.x, weighted = FALSE))
+obs_flight_w <- map(obs_flightEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = TRUE))
+obs_flight_uw <- map(obs_flightEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = FALSE))
 
 # Feeding
-feeding_w <- map(feedingEdges, ~vultureUtils::makeGraph(.x, weighted = TRUE))
-feeding_uw <- map(feedingEdges, ~vultureUtils::makeGraph(.x, weighted = FALSE))
+obs_feeding_w <- map(obs_feedingEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = TRUE))
+obs_feeding_uw <- map(obs_feedingEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = FALSE))
 ```
 
 ## Measure networks
+XXX do some measurement
 
 # Orr-style permutations (shuffling days)
 
-For now, I'm just going to work with the 2021-2022 breeding season. Later, can expand the analyses to the other seasons.
+For now, I'm just going to work with the 2021-2022 breeding season, `b_21_22`. Later, can expand the analyses to the other seasons.
 
 Also for now, I'm going to restrict it to individuals that were present on all of the days. Just simpler to think about.
 
@@ -122,49 +132,113 @@ whichIndivs <- dates$b_21_22 %>%
   unique()
 b_21_22_restricted <- seasons$b_21_22 %>%
   filter(trackId %in% whichIndivs)
+
+# for the sake of speed in testing these permutations, I'm going to limit it even more: just the first 60 days.
+testShort <- b_21_22_restricted %>%
+  filter(dateOnly %in% sort(unique(b_21_22_restricted$dateOnly))[1:60])
+nrow(testShort)
 ```
 
-Subset the data to avoid going crazy (many fewer columns):
-
-```{r}
-b_21_22_restricted <- b_21_22_restricted %>%
-  dplyr::select(trackId, timestamp, dateOnly, ground_speed, heading, height_above_msl, location_lat, location_long, geometry)
-```
+## Unrestricted permutation
+### Shuffle data
 
 Separate into a list of individuals and permute each individual
 
 ```{r}
-indivs <- b_21_22_restricted %>%
+indivs <- testShort %>%
+  sf::st_drop_geometry() %>%
   group_by(trackId) %>%
   group_split(.keep = T)
 
-permutedIndivs <- map(indivs, ~{
-  # setup
-  .x <- .x %>%
-    mutate(whichDay = as.numeric(dateOnly - min(dateOnly)))
+permutationFunction <- function(indiv){
+  # get unique dates as a vector
+  uniqueDates <- unique(indiv$dateOnly)
   
-  # permute
-  permutation <- sample(unique(.x$whichDay), 
-                        size = length(unique(.x$whichDay)), 
-                        replace = F)
-  permutationDF <- data.frame(whichDay = unique(.x$whichDay),
-                              permutationDay = permutation)
-  # join permutations
-  .x <- .x %>%
-    left_join(permutationDF) %>%
-    mutate(permutationDate = min(dateOnly) + permutationDay) %>%
-    mutate(permutationTimestamp = lubridate::ymd_hms(paste(as.character(permutationDate),
-                                                           timeOnly)))
-  # return
-  return(.x)
-})
+  # shuffle the dates vector
+  shuffledDates <- sample(uniqueDates, size = length(uniqueDates), replace = F)
+  
+  # Join the permuted dates
+  permutedIndiv <- indiv %>%
+    dplyr::left_join(data.frame("dateOnly" = uniqueDates,
+                                "permuted_dateOnly" = shuffledDates), 
+                     by = "dateOnly")
+  
+  return(permutedIndiv)
+}
+
+# # Run the permutations (let's start with 100, since it takes so long)
+# set.seed(3)
+# nPermutations <- 100
+# permutations <- vector(mode = "list", length = nPermutations)
+# for(i in 1:nPermutations){
+#   permutations[[i]] <- map_dfr(indivs, permutationFunction)
+#   cat(paste("iteration", i, "complete\n"))
+#   #beepr::beep(sound = 1)
+# }
+
+# permutations <- map(permutations, ~{
+#   # change names to remove the original date/time columns. Need to do this so it will work with makeGraph.
+#   .x %>% 
+#     mutate(timeOnly = lubridate::hms(timeOnly),
+#            permuted_timestamp = permuted_dateOnly + timeOnly) %>%
+#     dplyr::select(-c(dateOnly, timestamp, timeOnly)) %>% 
+#     dplyr::rename("timestamp" = permuted_timestamp,
+#                   "dateOnly" = permuted_dateOnly) %>%
+#     sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
+#     sf::st_set_crs("WGS84")
+# })
+
+#save(permutations, file = "data/permutations.Rda")
+load("data/permutations.Rda")
+```
+
+### Create networks
+#### Get edge lists
+
+```{r}
+# Get edge lists
+flightEdges_permuted <- map(permutations, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 350))
+save(flightEdges_permuted, file = "data/flightEdges_permuted.Rda")
+load("data/flightEdges_permuted.Rda")
+feedingEdges_permuted <- map(permutations, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons))
+save(feedingEdges_permuted, file = "data/feedingEdges_permuted.Rda")
+load("data/feedingEdges_permuted.Rda")
+
+# Get observed edge lists for the same period
+obs_feedingEdges_subset <- obs_feedingEdges_bySeason$b_21_22 %>%
+  filter(minTimestamp >= min(feedingEdges_permuted[[1]]$minTimestamp, na.rm = T),
+         maxTimestamp <= max(feedingEdges_permuted[[1]]$maxTimestamp, na.rm = T))
+
+obs_flightEdges_subset <- obs_flightEdges_bySeason$b_21_22 %>%
+  filter(minTimestamp >= min(flightEdges_permuted[[1]]$minTimestamp, na.rm = T),
+         maxTimestamp <= max(flightEdges_permuted[[1]]$maxTimestamp, na.rm = T))
+```
+
+#### Create networks
+
+```{r}
+# Flight
+flight_w_permuted <- map(flightEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = T))
+flight_uw_permuted <- map(flightEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = F))
+flight_w_obs <- vultureUtils::makeGraph(obs_flightEdges_subset, weighted = T)
+flight_uw_obs <- vultureUtils::makeGraph(obs_flightEdges_subset, weighted = F)
+
+# Feeding
+feeding_w_permuted <- map(feedingEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = T))
+feeding_uw_permuted <- map(feedingEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = F))
+feeding_w_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset, weighted = T)
+feeding_uw_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset, weighted = F)
+```
+
+Network-level metrics
+```{r}
+dens_p_flight <- map_dbl(flight_uw_permuted, igraph::edge_density)
+dens_p_feeding <- map_dbl(feeding_uw_permuted, igraph::edge_density)
+dens_o_flight <- edge_density(flight_uw_obs)
+dens_o_feeding <- edge_density(feeding_uw_obs)
 ```
 
 
-
-## Unrestricted permutation
-### Shuffle data
-### Create networks
 ### Measure networks
 ## Distance-restricted permutation
 ### Shuffle data
