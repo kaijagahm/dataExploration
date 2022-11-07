@@ -119,6 +119,7 @@ write_feather(datAnnot, "data/datAnnot.feather")
 
 Clean the data to remove invalid points:
 ```{r}
+mask <- sf::st_read("data/CutOffRegion.kml")
 datAnnotCleaned <- vultureUtils::cleanData(dataset = datAnnot, mask = mask, inMaskThreshold = 0.33, removeVars = F)
 save(datAnnotCleaned, file = "data/datAnnotCleaned.Rda")
 ```
