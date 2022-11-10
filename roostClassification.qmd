@@ -2,9 +2,12 @@
 title: "Roost classifications"
 format: html
 editor: source
+execute: 
+  echo: false  
 ---
 
-Load packages
+After incorporating Marta's roost assignment code into my vultureUtils package, I pulled roost locations for the cleaned data between 2020 and 2022. As a follow-up to what we discussed in the last vulture meeting, I started playing around with some clustering methods to see what might be best for making reasonable roost assignments.
+
 ```{r}
 library(vultureUtils)
 library(tidyverse)
@@ -16,37 +19,46 @@ library(paletteer)
 library(leaflet)
 ```
 
-Load data
 ```{r}
 load("data/datAnnotCleaned.Rda")
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml") %>%
+  sf::st_set_crs("WGS84")
 ```
 
-Get roost classifications
 ```{r}
+#| output: false
+
+# Get roost data for the entire dataset.
 roosts <- vultureUtils::get_roosts_df(df = datAnnotCleaned, id = "trackId")
 simplifiedRoosts <- roosts %>%
-  dplyr::select(trackId, location_long, location_lat, roost_date)
+  dplyr::select(trackId, location_long, location_lat, roost_date)%>%
+  sf::st_as_sf(coords = c("location_long", "location_lat"), remove = F) %>%
+  sf::st_set_crs("WGS84")
 
 # double-check that we just have one roost per individual per night
 simplifiedRoosts %>%
   group_by(trackId, roost_date) %>%
   summarize(n = n()) %>%
   pull(n) %>%
-  table()
+  table() 
+
+# Crop the roost polygons to the extent of the roost locations
+croppedRoostPolygons <- st_crop(roostPolygons, xmin = min(simplifiedRoosts$location_long), xmax = max(simplifiedRoosts$location_long), ymin = min(simplifiedRoosts$location_lat), ymax = max(simplifiedRoosts$location_lat))
 ```
 
-Make some plots
+Here's what it looks like if we plot all of the roost locations. Marta has already done this.
 
 ```{r}
-simplifiedRoosts %>%
-  ggplot(aes(x = location_long, y = location_lat))+
-  geom_point(alpha = 0.2)+
+ggplot(simplifiedRoosts, alpha = 0.2)+
+  geom_sf()+
+  geom_sf(data = croppedRoostPolygons, fill = NA, col = "red")+
   theme_classic()+
   theme(legend.position = "none")+
-  coord_equal()
+  ggtitle("All roost locations, 2020-2022")
 ```
 
-What if we facet by year?
+What if we facet by year? At first glance, do the roost locations look different from year to year?
+
 ```{r}
 simplifiedRoosts <- simplifiedRoosts %>%
   mutate(year = lubridate::year(roost_date))
@@ -55,40 +67,47 @@ years <- simplifiedRoosts %>%
   group_by(year) %>%
   group_split(.keep = T)
 
-simplifiedRoosts %>%
-  ggplot(aes(x = location_long, y = location_lat))+
-  geom_point(alpha = 0.2)+
+ggplot(simplifiedRoosts, alpha = 0.2)+
+  geom_sf()+
+  geom_sf(data = croppedRoostPolygons, fill = NA, col = "red")+
   theme_classic()+
   theme(legend.position = "none")+
+  ggtitle("All roost locations, 2020-2022")+
   facet_wrap(~year)
 ```
 
-Just as an experiment, let's look at the roosts each day.
+While there are some new/different roosts in each year, on the whole the vultures seem to be using the same main roosts from year to year. This tracks with what we know about their habits, so it's reassuring to see it reflected in the data.
+
+Because I wanted to make a compelling visual (and learn gganimate along the way!) I made this gif. It shows roost sites over time. Each frame of the gif is a single day, from the beginning of the dataset to the present. Colored points are where individuals roosted on that day. The small gray transparent points in the background are past roost sites--they accumulate as the gif progresses. The colored points are colored by year, so they change color as the gif progresses.
 
 ```{r}
 anim <- simplifiedRoosts %>%
-  #filter(year == 2020) %>%
   mutate(time = as.numeric(factor(roost_date))) %>%
-  ggplot(aes(x = location_long, y = location_lat, group = trackId))+
-  geom_point(size = 5, aes(col = factor(year)))+
-  theme_classic()+
+  ggplot(.)+
+  geom_sf(size = 5, aes(col = factor(year)))+
   scale_color_brewer(name = "Year", palette = "Dark2")+
-  #theme(legend.position = "none")+
+  geom_sf(data = croppedRoostPolygons, fill = NA, col = "blue")+
+  theme_classic()+
   transition_time(time)+
-  shadow_mark(color = "black", alpha = 0.1, size = 2)+
+  shadow_mark(color = "black", alpha = 0.1, size = 1)+
   ggtitle("Roost locations over time")
 
-animate(anim, fps = 4)
+#animate(anim, fps = 4)
 anim_save("data/roostLocations.gif", anim)
 ```
 
+I don't think this tells us anything particularly revolutionary, but it's cool to be able to see the roosting in "real time!"
+
 ## K-means clustering
 
-K-means clustering really isn't going to work for our use case. Here is an example with 50 clusters.
+At our meeting, Noa suggested using k-means clustering to assign roost sites. I don't think this is the right method, but it's easily tractable, so I decided to start by giving it a shot.
+
+Arbitrarily, let's start with 50 clusters. Here's what the results look like.
 
 ```{r}
 roostLocs <- simplifiedRoosts %>%
-  dplyr::select(location_long, location_lat)
+  dplyr::select(location_long, location_lat) %>%
+  sf::st_drop_geometry()
 clusters <- kmeans(x = roostLocs, centers = 50)
 centers <- clusters$centers
 assignments <- clusters$cluster
@@ -98,13 +117,19 @@ simplifiedRoosts <- simplifiedRoosts %>%
 ```
 
 ```{r}
-simplifiedRoosts %>%
-  ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
-  geom_point(alpha = 0.5)+
+ggplot(simplifiedRoosts, alpha = 0.5)+
+  geom_sf(aes(col = factor(cluster)))+
+  geom_sf(data = croppedRoostPolygons, fill = NA, col = "black")+
   theme_classic()+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  scale_color_paletteer_d("ggsci::default_igv")
 ```
-Okay, we could do k-means clustering with any arbitrary number and get *some* result. But I'm not sure how meaningful that is.
+
+Okay, we could do k-means clustering with any arbitrary number and get some result. But I'm not sure how meaningful that is. My biggest gripe with this is that it takes all of the various scattered roosts and forces them to be grouped with others. This gives us really diffuse clusters that aren't biologically meaningful. Ideally, we'd want to count those as their own roosts.
+
+If we want to obtain many more than 50 clusters and allow some to have isolated points, we could try increasing k. But I think that will tend to break up the large central clusters artificially before it will have much of an effect on the outlying points.
+
+Next, I decided to try hierarchical clustering, which can deal a bit more easily with large numbers of clusters and/or clusters containing very few points.
 
 ## Try hierarchical clustering
 
@@ -115,8 +140,8 @@ testDF <- years[[2]] %>%
   sf::st_set_crs("WGS84")
 
 # Compute pairwise distances between points
-# distanceMatrix <- sf::st_distance(testDF, testDF) %>% as.dist() # this takes a really really long time with such a big dataset.
-# save(distanceMatrix, file = "data/distanceMatrix.Rda")
+#distanceMatrix <- sf::st_distance(testDF, testDF) %>% as.dist() # this takes a really really long time with such a big dataset.
+#save(distanceMatrix, file = "data/distanceMatrix.Rda")
 load("data/distanceMatrix.Rda")
 ```
 
@@ -125,114 +150,120 @@ load("data/distanceMatrix.Rda")
 clust <- hclust(d = distanceMatrix, method = "complete")
 plot(clust, labels = F)
 
+# We can cut the dendrogram based on either number of clusters or on the distance between points.
 # Cut the dendrogram into different numbers of clusters
-numberCuts <- as.data.frame(cutree(clust, k = c(30, 40, 50, 60)))
+numberCuts <- as.data.frame(cutree(clust, k = c(50, 60, 70, 80, 90)))
 names(numberCuts) <- paste0("k_", names(numberCuts))
 
 # Alternatively, cut the dendrogram based on different distances
-distanceCuts <- as.data.frame(cutree(clust, h = c(250, 500, 1000, 2000)))
+distanceCuts <- as.data.frame(cutree(clust, h = c(50, 100, 150, 200, 250,  300, 500, 1000)))
 names(distanceCuts) <- paste0("dist_", names(distanceCuts))
 
 # Create a data frame
 testDF_withClusters <- bind_cols(testDF, numberCuts, distanceCuts)
 ```
 
-Make plots--numbers
+Hierarchical clustering creates a dendrogram, shown above. Note that this dendrogram is created with complete linkage. There are many other methods we could have used; I picked complete just to test it out. I played around with other methods, and they gave trees that looked a bit different, but none of them produced adequate clusters (I'll show below for complete linkage why I'm not satisfied with these clusters).
+
+Once we have this dendrogram, we can "cut" the tree into clusters in order to assign each point to a cluster. We can do that cutting in two ways. Either we can tell R how many clusters we'd like to end up with and it will find the height at which to cut the tree in order to produce that many clusters, or we can tell R that we want to cut at a specific height (i.e. a specific distance between any given pair of points) and accept however many clusters are produced by that cut. The latter is perhaps easier to justify with biology, but I tried both.
+
+Here are some examples of how the clustering looks if I cut the tree to a set number of clusters.
 
 ```{r}
 plots_numbers <- map(names(testDF_withClusters)[grepl("k_", names(testDF_withClusters))], ~{
   n <- str_extract(.x, "[0-9]+")
-  testDF_withClusters %>%
-    ggplot(aes(x = location_long, y = location_lat, col = as.factor(.data[[.x]])))+
-    geom_point(alpha = 0.3)+
-    theme_classic()+
-    theme(legend.position = "none")+
-    coord_equal()+
-    ggtitle(paste0("Number of clusters = ", n))
+  p <- ggplot(data = testDF_withClusters)+
+  geom_sf(aes(col = as.factor(.data[[.x]])), alpha = 0.5)+
+  geom_sf(data = croppedPolygons, fill = NA)+
+  theme_classic()+
+  theme(legend.position = "none", panel.grid = element_blank())+
+  ggtitle(paste0("Number of clusters = ", n))
 })
 walk(plots_numbers, print)
 ```
 
-Make plots--distances
+And here's what it looks like if I make plots based on the distance between points.
 
 ```{r}
 plots_distances <- map(names(testDF_withClusters)[grepl("dist_", names(testDF_withClusters))], ~{
-  testDF_withClusters %>%
-    ggplot(aes(x = location_long, y = location_lat, col = as.factor(.data[[.x]])))+
-    geom_point(alpha = 0.3)+
+  dist <- str_extract(.x, "[0-9]+")
+  ggplot(data = testDF_withClusters)+
+    geom_sf(aes(col = as.factor(.data[[.x]])), alpha = 0.5)+
+    geom_sf(data = croppedPolygons, fill = NA)+
     theme_classic()+
-    theme(legend.position = "none")+
-    coord_equal()
+    theme(legend.position = "none", panel.grid = element_blank())+
+    ggtitle(paste0("Distance = ", dist))
 })
 walk(plots_distances, print)
 ```
 
-Ok, if we cut the tree based on distances, what does the number of clusters look like?
+These plots aren't very meaningful, because there are so many clusters that the map can't handle plotting them each in a different color.
+
+That raises a very natural next question: If we cut the tree based on distances, how many clusters do we end up with?
+
 ```{r}
 # number of clusters
 dists <- seq(100, 2000, by = 100)
 testDistanceCuts <- as.data.frame(cutree(clust, h = dists))
 nClusters <- map_dbl(testDistanceCuts, max)
-plot(nClusters~dists, type = "l")
+plot(nClusters~dists, type = "o", pch = 19)
+
 # This is not particularly helpful for selecting the distance. I suppose we could look at the elbow, which is a bit lower than 500m. 1000m seems like a potentially relevant distance, though, so I'm going to go with that for now, I guess? Note that even at a distance of 1000, we still get about 500 unique roosts.
 ```
 
-Continuing with a 1000m (1km) distance for roosts
+There does seem to be something of an elbow a bit under 500, say around 350m? But it's not crystal clear. If we decided to pick, say, 350m as our cut distance, we would end up with a little less than 1000 clusters, and we would still have quite a few outlying points grouped together.
 
-Zoom in on just the center of the map and visualize the different numbers
+Instead of paying attention to those outlying points, though, let's zoom in for a moment on our known roost sites, the craters.
+
 ```{r}
-zoomData <- testDF_withClusters %>%
-  filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6)
+# crop the roost polygons
+ymax <- 31.2
+ymin <- 30.6
+xmax <- 35.3
+xmin <- 34.75
 
-plots_numbers_zoom <- map(names(zoomData)[grepl("k_", names(zoomData))], ~{
+plots_numbers_zoomed <- map(names(testDF_withClusters)[grepl("k_", names(testDF_withClusters))], ~{
   n <- str_extract(.x, "[0-9]+")
-  zoomData %>%
-    ggplot(aes(x = location_long, y = location_lat, col = as.factor(.data[[.x]])))+
-    geom_point(alpha = 0.3)+
+  p <- ggplot(data = testDF_withClusters)+
+    geom_sf(aes(col = as.factor(.data[[.x]])), alpha = 0.5)+
+    geom_sf(data = croppedPolygons, fill = NA)+
     theme_classic()+
-    theme(legend.position = "none")+
-    coord_equal()+
-    ggtitle(paste0("Number of clusters = ", n))
+    theme(legend.position = "none", panel.grid = element_blank())+
+    ggtitle(paste0("Number of clusters = ", n))+
+    ylim(ymin, ymax)+
+    xlim(xmin, xmax)
 })
-walk(plots_numbers_zoom, print)
+walk(plots_numbers_zoomed, print)
+
+plots_distances_zoomed <- map(names(testDF_withClusters)[grepl("dist_", names(testDF_withClusters))], ~{
+  dist <- str_extract(.x, "[0-9]+")
+  ggplot(data = testDF_withClusters)+
+    geom_sf(aes(col = as.factor(.data[[.x]])), alpha = 0.5)+
+    geom_sf(data = croppedPolygons, fill = NA)+
+    theme_classic()+
+    theme(legend.position = "none", panel.grid = element_blank())+
+    ggtitle(paste0("Distance = ", dist))+    
+    ylim(ymin, ymax)+
+    xlim(xmin, xmax)
+})
+walk(plots_distances_zoomed, print)
+
 ```
+
+When we use biologically reasonable distances to cut the hierarchical clustering dendrogram, the large roost polygons still get broken up quite a bit. Even with a distance as great as 1000m, which is on the high end of what I'd want to use, we're nowhere close to allowing for clusters as large as we need (like in the crater).
 
 ## DBSCAN clustering
 
-I think DBSCAN will be a good clustering algorithm here because it can identify weird-shaped clusters, and because the parameters that need tuning can be biologically informed. It will also tell us which points are outliers, and we can then do whatever we want with outliers (e.g. assign them to their own roosts)
+Next, I decided to try DBSCAN, which is a density-based algorithm that is especially well suited to weird-shaped and differently-sized clusters. There's a good explanation of how this works \[here\](https://www.youtube.com/watch?v=RDZUdRSDOok). Notably, it only needs two parameters to be specified, and they are both relatively easy to tie to biology. 1) The distance between "core points" such that they can be considered part of the same clusters, and 2) The minimum number of points to define a cluster.
+
+DBSCAN differs notably from the other clustering algorithms in that it does not necessarily assign every single point to a cluster. After dividing the points into "core points," "border points," and "outliers," DBSCAN assigns the core and border points to clusters, but it keeps the outliers unassigned. This is effectively the same as saying that all the outliers are their own clusters of size 1. This is, I think, what we want.
+
+So, how to choose the parameters? I chose the minimum number of core points as 3, to be very conservative. I think 3 is the smallest that makes sense, although maybe 2 would be justifiable. For the distance between points, I'll try a range of distances between 100 and 1500m.
 
 ```{r}
-set.seed(3)
-# eps is the reachability distance. I'm going to consider that to be 750m for starters. minPts for a core point is going to be 3.
-dbscan <- dbscan(distanceMatrix, eps = 750, method = "dist", MinPts = 3)
+testDF <- testDF %>%
+  sf::st_drop_geometry()
 
-data_dbscan <- bind_cols(testDF, "cluster" = dbscan$cluster) %>%
-  mutate(isOutlier = case_when(cluster == 0 ~ T,
-                               TRUE ~ F))
-
-# plot
-data_dbscan %>%
-  ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
-  geom_point(alpha = 0.3, aes(shape = isOutlier))+
-  scale_shape_manual(values = c(19, 3))+
-  theme_classic()+
-  theme(legend.position = "none")+
-  coord_equal()
-
-# zoom in
-data_dbscan %>%
-  filter(location_lat < 31.2, location_lat > 30.9, location_long < 35.4, location_long > 35.0) %>%
-  ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
-  geom_point(alpha = 0.3, aes(shape = isOutlier))+
-  scale_shape_manual(values = c(19, 3))+
-  theme_classic()+
-  theme(legend.position = "none")+
-  coord_equal()
-```
-
-How many points are classified as outliers?
-
-```{r}
 nPoints <- nrow(testDF)
 dists <- c(100, 250, 500, 750, 1000, 1500)
 minpts <- 3
@@ -241,7 +272,10 @@ for(i in 1:length(dists)){
   dbscans_list[[i]] <- fpc::dbscan(distanceMatrix, eps = dists[i], method = "dist", MinPts = minpts)
 }
 data_dbscans <- map(dbscans_list, ~bind_cols(testDF, "cluster" = .x$cluster) %>%
-                      mutate(isOutlier = ifelse(cluster == 0, T, F)))
+                      mutate(isOutlier = ifelse(cluster == 0, T, F)) %>%
+                      sf::st_as_sf(coords = c("location_long", "location_lat"), remove = F) %>%
+                      sf::st_set_crs("WGS84"))
+
 nOutliers <- map_dbl(data_dbscans, ~.x %>%
                        filter(cluster == 0) %>%
                        nrow())
@@ -257,30 +291,28 @@ outliers %>%
   ylab("Proportion of points not included in a cluster")+
   xlab("Neighborhood distance (m)")
 ```
-Make zoomed-in plots for each dbscan distance
+
+The distance graph has a similar shape to the one I got from the hierarchical clustering, and once again the elbow seems to be somewhere around 350 or 400m.
+
+Let's take a look at the cluster results for each distance.
+
 ```{r}
 set.seed(1)
 zoomPlots <- map2(data_dbscans, dists, ~{
   yr <- min(lubridate::year(.x$roost_date))
-  .x %>%
-    filter(location_lat < 31.8, location_lat > 30.5, location_long < 35.4, location_long > 34.6) %>%
-    ggplot(aes(x = location_long, y = location_lat, col = factor(cluster)))+
-    geom_point(alpha = 0.3, aes(shape = isOutlier))+
-    scale_shape_manual(values = c(19, 3))+
+  ggplot(data = .x)+
+    geom_sf(aes(col = as.factor(cluster), alpha = 0.5))+
+    geom_sf(data = croppedPolygons, fill = NA)+
     theme_classic()+
-    theme(legend.position = "none")+
-    coord_equal()+
-    ggtitle(paste0("Year = ", yr, "; MinPts = ", minpts, "; eps = ", .y, "m"))+
-    scale_color_paletteer_d("trekcolors::lcars_cardassian")
+    theme(legend.position = "none", panel.grid = element_blank())+
+    ggtitle(paste0("Distance = ", .y))+    
+    ylim(ymin, ymax)+
+    xlim(xmin, xmax)
 })
 
 walk(zoomPlots, print)
 ```
 
-Visualize these options in leaflet, with the existing roost polygons
-```{r}
-# Load the roost polygons
-roostPolygons <- sf::st_read("data/AllRoostPolygons.kml") %>%
-  select(-c("Name", "Description"))
-```
+I am feeling very frustrated! On first glance, this seems better, but overlaying the roost polygons shows us that there are still errors in both directions--polygons that include multiple colors, and multiple polygons overlaid on groups of points of the same color. Of course, this is all complicated by the fact that we don't have nearly enough colors to distinguish all the clusters, so some of these may be different even when they seem the same.
 
+I would really like to be able to explore this more, so I'm going to try using leaflet to visualize the points.
