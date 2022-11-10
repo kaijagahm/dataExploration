@@ -92,10 +92,10 @@ plots <- map2(.x = dates, .y = names(dates), ~{
 
 ```{r}
 # Get edge lists
-# obs_flightEdges_bySeason <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350))
+# obs_flightEdges_bySeason <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350, includeAllVertices = T))
 # save(obs_flightEdges_bySeason, file = "data/obs_flightEdges_bySeason.Rda")
 load("data/obs_flightEdges_bySeason.Rda")
-# obs_feedingEdges_bySeason <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2))
+# obs_feedingEdges_bySeason <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, includeAllVertices = T))
 # save(obs_feedingEdges_bySeason, file = "data/obs_feedingEdges_bySeason.Rda")
 load("data/obs_feedingEdges_bySeason.Rda")
 ```
@@ -104,12 +104,12 @@ load("data/obs_feedingEdges_bySeason.Rda")
 
 ```{r}
 # Flight
-obs_flight_w <- map(obs_flightEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = TRUE))
-obs_flight_uw <- map(obs_flightEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = FALSE))
+obs_flight_w <- map(obs_flightEdges_bySeason, ~vultureUtils::makeGraph(.x$edges, weighted = TRUE, vertices = .x$allVertices))
+obs_flight_uw <- map(obs_flightEdges_bySeason, ~vultureUtils::makeGraph(.x$edges, weighted = FALSE, vertices = .x$allVertices))
 
 # Feeding
-obs_feeding_w <- map(obs_feedingEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = TRUE))
-obs_feeding_uw <- map(obs_feedingEdges_bySeason, ~vultureUtils::makeGraph(.x, weighted = FALSE))
+obs_feeding_w <- map(obs_feedingEdges_bySeason, ~vultureUtils::makeGraph(.x$edges, weighted = TRUE, vertices = .x$allVertices))
+obs_feeding_uw <- map(obs_feedingEdges_bySeason, ~vultureUtils::makeGraph(.x$edges, weighted = FALSE, vertices = .x$allVertices))
 ```
 
 ## Measure networks
@@ -133,9 +133,9 @@ whichIndivs <- dates$b_21_22 %>%
 b_21_22_restricted <- seasons$b_21_22 %>%
   filter(trackId %in% whichIndivs)
 
-# for the sake of speed in testing these permutations, I'm going to limit it even more: just the first 60 days.
+# for the sake of speed in testing these permutations, I'm going to limit it even more: just the first 30 days.
 testShort <- b_21_22_restricted %>%
-  filter(dateOnly %in% sort(unique(b_21_22_restricted$dateOnly))[1:60])
+  filter(dateOnly %in% sort(unique(b_21_22_restricted$dateOnly))[1:30])
 nrow(testShort)
 ```
 
@@ -166,7 +166,7 @@ permutationFunction <- function(indiv){
   return(permutedIndiv)
 }
 
-# # Run the permutations (let's start with 100, since it takes so long)
+# Run the permutations (let's start with 100, since it takes so long)
 # set.seed(3)
 # nPermutations <- 100
 # permutations <- vector(mode = "list", length = nPermutations)
@@ -175,20 +175,20 @@ permutationFunction <- function(indiv){
 #   cat(paste("iteration", i, "complete\n"))
 #   #beepr::beep(sound = 1)
 # }
-
+# 
 # permutations <- map(permutations, ~{
 #   # change names to remove the original date/time columns. Need to do this so it will work with makeGraph.
-#   .x %>% 
+#   .x %>%
 #     mutate(timeOnly = lubridate::hms(timeOnly),
 #            permuted_timestamp = permuted_dateOnly + timeOnly) %>%
-#     dplyr::select(-c(dateOnly, timestamp, timeOnly)) %>% 
+#     dplyr::select(-c(dateOnly, timestamp, timeOnly)) %>%
 #     dplyr::rename("timestamp" = permuted_timestamp,
 #                   "dateOnly" = permuted_dateOnly) %>%
 #     sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
 #     sf::st_set_crs("WGS84")
 # })
-
-#save(permutations, file = "data/permutations.Rda")
+# 
+# save(permutations, file = "data/permutations.Rda")
 load("data/permutations.Rda")
 ```
 
@@ -197,37 +197,39 @@ load("data/permutations.Rda")
 
 ```{r}
 # Get edge lists
-flightEdges_permuted <- map(permutations, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 350))
-save(flightEdges_permuted, file = "data/flightEdges_permuted.Rda")
+# flightEdges_permuted <- map(permutations, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 350, includeAllVertices = T))
+# save(flightEdges_permuted, file = "data/flightEdges_permuted.Rda")
 load("data/flightEdges_permuted.Rda")
-feedingEdges_permuted <- map(permutations, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons))
-save(feedingEdges_permuted, file = "data/feedingEdges_permuted.Rda")
+# feedingEdges_permuted <- map(permutations, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, includeAllVertices = T))
+# save(feedingEdges_permuted, file = "data/feedingEdges_permuted.Rda")
 load("data/feedingEdges_permuted.Rda")
 
 # Get observed edge lists for the same period
-obs_feedingEdges_subset <- obs_feedingEdges_bySeason$b_21_22 %>%
-  filter(minTimestamp >= min(feedingEdges_permuted[[1]]$minTimestamp, na.rm = T),
-         maxTimestamp <= max(feedingEdges_permuted[[1]]$maxTimestamp, na.rm = T))
+obs_feedingEdges_subset <- obs_feedingEdges_bySeason$b_21_22$edges %>%
+  filter(minTimestamp >= min(feedingEdges_permuted[[1]]$edges$minTimestamp, na.rm = T),
+         maxTimestamp <= max(feedingEdges_permuted[[1]]$edges$maxTimestamp, na.rm = T))
+obs_feedingEdges_subset <- list("edges" = obs_feedingEdges_subset, "allVertices" = obs_feedingEdges_bySeason$b_21_22$allVertices)
 
-obs_flightEdges_subset <- obs_flightEdges_bySeason$b_21_22 %>%
-  filter(minTimestamp >= min(flightEdges_permuted[[1]]$minTimestamp, na.rm = T),
-         maxTimestamp <= max(flightEdges_permuted[[1]]$maxTimestamp, na.rm = T))
+obs_flightEdges_subset <- obs_flightEdges_bySeason$b_21_22$edges %>%
+  filter(minTimestamp >= min(flightEdges_permuted[[1]]$edges$minTimestamp, na.rm = T),
+         maxTimestamp <= max(flightEdges_permuted[[1]]$edges$maxTimestamp, na.rm = T))
+obs_flightEdges_subset <- list("edges" = obs_flightEdges_subset, "allVertices" = obs_flightEdges_bySeason$b_21_22$allVertices)
 ```
 
 #### Create networks
 
 ```{r}
 # Flight
-flight_w_permuted <- map(flightEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = T))
-flight_uw_permuted <- map(flightEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = F))
-flight_w_obs <- vultureUtils::makeGraph(obs_flightEdges_subset, weighted = T)
-flight_uw_obs <- vultureUtils::makeGraph(obs_flightEdges_subset, weighted = F)
+flight_w_permuted <- map(flightEdges_permuted, ~vultureUtils::makeGraph(.x$edges, weighted = T, vertices = .x$allVertices))
+flight_uw_permuted <- map(flightEdges_permuted, ~vultureUtils::makeGraph(.x$edges, weighted = F, vertices = .x$allVertices))
+flight_w_obs <- vultureUtils::makeGraph(obs_flightEdges_subset$edges, weighted = T, vertices = obs_flightEdges_subset$allVertices)
+flight_uw_obs <- vultureUtils::makeGraph(obs_flightEdges_subset$edges, weighted = F, vertices = obs_flightEdges_subset$allVertices)
 
 # Feeding
-feeding_w_permuted <- map(feedingEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = T))
-feeding_uw_permuted <- map(feedingEdges_permuted, ~vultureUtils::makeGraph(.x, weighted = F))
-feeding_w_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset, weighted = T)
-feeding_uw_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset, weighted = F)
+feeding_w_permuted <- map(feedingEdges_permuted, ~vultureUtils::makeGraph(.x$edges, weighted = T, vertices = .x$allVertices))
+feeding_uw_permuted <- map(feedingEdges_permuted, ~vultureUtils::makeGraph(.x$edges, weighted = F, vertices = .x$allVertices))
+feeding_w_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset$edges, weighted = T, vertices = obs_feedingEdges_subset$allVertices)
+feeding_uw_obs <- vultureUtils::makeGraph(obs_feedingEdges_subset$edges, weighted = F, vertices = obs_feedingEdges_subset$allVertices)
 ```
 
 Network-level metrics
@@ -273,7 +275,6 @@ dd_o_feeding <- degree(feeding_uw_obs) %>%
   mutate(iter = 0, type = "observed", situation = "feeding")
 
 degreeDF <- bind_rows(dd_p_flight, dd_o_flight, dd_p_feeding, dd_o_feeding)
-# XXX it will be important, when creating the edge lists, to go back and include all the possible individuals! This is pretty critical, actually.
 
 degreeDF %>%
   ggplot(aes(x = value, col = type, group = iter))+
@@ -285,8 +286,8 @@ degreeDF %>%
 ```
 
 XXX next to do:
-- use a smaller subset of the days (10 days? vs 60 that i have now) to test out benchmarking to get the code to run faster. 
-- change network code so that it includes all possible vertices. This one's really important, since it has a big effect on things like density.
+- [DONE] use a smaller subset of the days (10 days? vs 60 that i have now) to test out benchmarking to get the code to run faster. 
+- [DONE] change network code so that it includes all possible vertices. This one's really important, since it has a big effect on things like density.
 - dig more into how to benchmark code, in order to speed up the incredibly slow steps here. 
 - set up this project on the cluster so that I can run these things without wearing out my laptop
 - scale up to dealing with more data. I have to drastically improve the function performance if it's going to make sense to do this.
