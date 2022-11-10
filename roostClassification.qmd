@@ -294,14 +294,15 @@ outliers %>%
 
 The distance graph has a similar shape to the one I got from the hierarchical clustering, and once again the elbow seems to be somewhere around 350 or 400m.
 
-Let's take a look at the cluster results for each distance.
+Let's take a look at the cluster results for each distance. Note that the + signs are outliers (i.e. their own cluster, or not assigned to any cluster.
 
 ```{r}
 set.seed(1)
 zoomPlots <- map2(data_dbscans, dists, ~{
   yr <- min(lubridate::year(.x$roost_date))
-  ggplot(data = .x)+
+  ggplot(data = .x %>% filter(cluster != 0))+
     geom_sf(aes(col = as.factor(cluster), alpha = 0.5))+
+    geom_sf(data = .x %>% filter(cluster == 0), alpha = 0.7, pch = 3)+
     geom_sf(data = croppedPolygons, fill = NA)+
     theme_classic()+
     theme(legend.position = "none", panel.grid = element_blank())+
@@ -313,6 +314,8 @@ zoomPlots <- map2(data_dbscans, dists, ~{
 walk(zoomPlots, print)
 ```
 
-I am feeling very frustrated! On first glance, this seems better, but overlaying the roost polygons shows us that there are still errors in both directions--polygons that include multiple colors, and multiple polygons overlaid on groups of points of the same color. Of course, this is all complicated by the fact that we don't have nearly enough colors to distinguish all the clusters, so some of these may be different even when they seem the same.
+I am feeling very frustrated! On first glance, this seems better than hierarchical or k-means, but overlaying the roost polygons shows us that there are still errors in both directions--polygons that include multiple colors, and multiple polygons overlaid on groups of points of the same color. Of course, this is all complicated by the fact that we don't have nearly enough colors to distinguish all the clusters, so some of these may be different even when they seem the same.
+
+We also have a *ton* of outliers. I don't know if this is inherently a bad thing. One possibility is that we could run DBSCAN first, and then take the outliers and use a different clustering method to assign them to more diffuse groups, which would mean something different from what the DBSCAN groups mean. I haven't tried this yet.
 
 I would really like to be able to explore this more, so I'm going to try using leaflet to visualize the points.
