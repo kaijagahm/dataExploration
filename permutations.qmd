@@ -29,29 +29,29 @@ roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
 
 ## Subset to seasons
 ```{r}
-# # Breeding season: December 2020-June 2021
-# b_20_21 <- datAnnot %>%
-#   filter(timestamp > lubridate::ymd_hm("2020-12-01 00:00"),
-#          timestamp < lubridate::ymd_hm("2021-07-01 00:00"))
-# 
-# # Non-breeding season: July 2021-November 2021
-# nb_21 <- datAnnot %>%
-#   filter(timestamp > lubridate::ymd_hm("2021-07-01 00:00"),
-#          timestamp < lubridate::ymd_hm("2021-12-01 00:00"))
-# 
-# # Breeding season: December 2021-June 2022
-# b_21_22 <- datAnnot %>%
-#   filter(timestamp > lubridate::ymd_hm("2021-12-01 00:00"),
-#          timestamp < lubridate::ymd_hm("2022-07-01 00:00"))
-# 
-# # Non-breeding season: July 2022-November 2022 # XXX this one's incomplete as of 2022-10-31
-# nb_22 <- datAnnot %>%
-#   filter(timestamp > lubridate::ymd_hm("2022-07-01 00:00"),
-#          timestamp < lubridate::ymd_hm("2022-12-01 00:00"))
-# 
-# # List them
-# seasons <- list("b_20_21" = b_20_21, "nb_21" = nb_21, "b_21_22" = b_21_22, "nb_22" = nb_22)
-# save(seasons, file = "data/seasons.Rda")
+# Breeding season: December 2020-June 2021
+b_20_21 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2020-12-01 00:00"),
+         timestamp < lubridate::ymd_hm("2021-07-01 00:00"))
+
+# Non-breeding season: July 2021-November 2021
+nb_21 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2021-07-01 00:00"),
+         timestamp < lubridate::ymd_hm("2021-12-01 00:00"))
+
+# Breeding season: December 2021-June 2022
+b_21_22 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2021-12-01 00:00"),
+         timestamp < lubridate::ymd_hm("2022-07-01 00:00"))
+
+# Non-breeding season: July 2022-November 2022 # XXX this one's incomplete as of 2022-10-31
+nb_22 <- datAnnot %>%
+  filter(timestamp > lubridate::ymd_hm("2022-07-01 00:00"),
+         timestamp < lubridate::ymd_hm("2022-12-01 00:00"))
+
+# List them
+seasons <- list("b_20_21" = b_20_21, "nb_21" = nb_21, "b_21_22" = b_21_22, "nb_22" = nb_22)
+save(seasons, file = "data/seasons.Rda")
 load("data/seasons.Rda")
 ```
 
@@ -92,11 +92,11 @@ plots <- map2(.x = dates, .y = names(dates), ~{
 
 ```{r}
 # Get edge lists
-# obs_flightEdges_bySeason <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350, includeAllVertices = T))
-# save(obs_flightEdges_bySeason, file = "data/obs_flightEdges_bySeason.Rda")
+obs_flightEdges_bySeason <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350, includeAllVertices = T))
+save(obs_flightEdges_bySeason, file = "data/obs_flightEdges_bySeason.Rda")
 load("data/obs_flightEdges_bySeason.Rda")
-# obs_feedingEdges_bySeason <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, includeAllVertices = T))
-# save(obs_feedingEdges_bySeason, file = "data/obs_feedingEdges_bySeason.Rda")
+obs_feedingEdges_bySeason <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, includeAllVertices = T))
+save(obs_feedingEdges_bySeason, file = "data/obs_feedingEdges_bySeason.Rda")
 load("data/obs_feedingEdges_bySeason.Rda")
 ```
 
@@ -167,28 +167,28 @@ permutationFunction <- function(indiv){
 }
 
 # Run the permutations (let's start with 100, since it takes so long)
-# set.seed(3)
-# nPermutations <- 100
-# permutations <- vector(mode = "list", length = nPermutations)
-# for(i in 1:nPermutations){
-#   permutations[[i]] <- map_dfr(indivs, permutationFunction)
-#   cat(paste("iteration", i, "complete\n"))
-#   #beepr::beep(sound = 1)
-# }
-# 
-# permutations <- map(permutations, ~{
-#   # change names to remove the original date/time columns. Need to do this so it will work with makeGraph.
-#   .x %>%
-#     mutate(timeOnly = lubridate::hms(timeOnly),
-#            permuted_timestamp = permuted_dateOnly + timeOnly) %>%
-#     dplyr::select(-c(dateOnly, timestamp, timeOnly)) %>%
-#     dplyr::rename("timestamp" = permuted_timestamp,
-#                   "dateOnly" = permuted_dateOnly) %>%
-#     sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
-#     sf::st_set_crs("WGS84")
-# })
-# 
-# save(permutations, file = "data/permutations.Rda")
+set.seed(3)
+nPermutations <- 100
+permutations <- vector(mode = "list", length = nPermutations)
+for(i in 1:nPermutations){
+  permutations[[i]] <- map_dfr(indivs, permutationFunction)
+  cat(".")
+  #beepr::beep(sound = 1)
+}
+
+permutations <- map(permutations, ~{
+  # change names to remove the original date/time columns. Need to do this so it will work with makeGraph.
+  .x %>%
+    mutate(timeOnly = lubridate::hms(timeOnly),
+           permuted_timestamp = permuted_dateOnly + timeOnly) %>%
+    dplyr::select(-c(dateOnly, timestamp, timeOnly)) %>%
+    dplyr::rename("timestamp" = permuted_timestamp,
+                  "dateOnly" = permuted_dateOnly) %>%
+    sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
+    sf::st_set_crs("WGS84")
+})
+
+save(permutations, file = "data/permutations.Rda")
 load("data/permutations.Rda")
 ```
 
