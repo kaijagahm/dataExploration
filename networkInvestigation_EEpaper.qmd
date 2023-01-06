@@ -1,0 +1,13 @@
+---
+title: "Network investigation (EcolEvol paper)"
+format: html
+editor: visual
+---
+
+## Drilling into how the network code works
+
+```{r}
+#| output: false
+library(vultureUtils)
+library(tidyverse)
+```
