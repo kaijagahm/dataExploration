@@ -6,8 +6,110 @@ editor: visual
 
 ## Drilling into how the network code works
 
-```{r}
+```{r load-packages}
 #| output: false
 library(vultureUtils)
 library(tidyverse)
+library(sf)
 ```
+
+For this investigation, I'm going to be working with data from December 2020 (2020-12-01) through June 2021 (2021-06-30), because that's the time interval that was used for the EE paper.
+
+```{r define-dates}
+minDate <- lubridate::ymd("2020-12-01")
+maxDate <- lubridate::ymd("2021-06-30")
+```
+
+Let's begin by getting that data. Since we want to remove invalid periods anyway, and since my purpose here isn't to perfectly match the dataset that Nitika was using, I'm going to go ahead and use the dataset prepared in dataPrep.Rmd, which is datAnnotCleaned.Rda. I've recently updated this dataset to include data through the end of 2022, but that's not going to matter for this investigation, since I'll be subsetting it to the above dates anyway.
+
+```{r load-subset-data}
+#| output: false
+load("data/datAnnotCleaned.Rda")
+mask <- sf::st_read("data/CutOffRegion.kml")
+roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", 
+                             quiet = TRUE) %>%
+  sf::st_transform("WGS84")
+subsetted <- datAnnotCleaned %>%
+  filter(timestamp >= minDate & timestamp <= maxDate)
+```
+
+Now, using the functions in vultureUtils, create a co-flight edge list.
+
+```{r}
+speedThreshLower = 5
+speedThreshUpper = NULL
+roostBuffer = 50
+consecThreshold = 2
+distThreshold = 1000
+timeThreshold = "10 minutes"
+quiet = T
+includeAllVertices = F
+dataset <- subsetted
+ filteredData <- vultureUtils::filterLocs(df = dataset,
+                                           speedThreshUpper = speedThreshUpper,
+                                           speedThreshLower = speedThreshLower)
+roostPolygons <- convertAndBuffer(roostPolygons, dist = roostBuffer)
+points <- filteredData[lengths(sf::st_intersects(filteredData, roostPolygons)) == 0,]
+edges <- suppressWarnings(vultureUtils::spaceTimeGroups(dataset = points,
+                                                              distThreshold = distThreshold,
+                                                              consecThreshold = consecThreshold,
+                                                              timeThreshold = timeThreshold))
+
+# Now that we have the grouped data, let's investigate it.
+# How many groups?
+length(unique(edges$timegroup)) # 1308 time groups
+# How many individuals?
+length(c(unique(edges$ID1), unique(edges$ID2))) #67 unique individuals
+# Are self edges included?
+edges %>%
+  filter(ID1 == ID2) # no, self edges are not included
+# Are edges included twice, once for each direction, within a timegroup?
+twice <- edges %>%
+  mutate(firstIndiv = ifelse(ID1 < ID2, ID1, ID2),
+         secondIndiv = ifelse(ID1 < ID2, ID2, ID1),
+         combo = paste(firstIndiv, secondIndiv)) %>%
+  group_by(timegroup, combo) %>%
+  filter(n() > 1)
+head(twice)
+# Okay, so there are no instances of the same edge showing up twice in opposite directions.
+# This has turned up a different problem, though, which is that we see one edge with the two individuals showing up in the *same* direction but with a different distance. I wonder what that's about.
+# Let's investigate!
+# Ah, in trying to investigate this, I've discovered that it's not easy to trace observations back to their source because spaceTimeGroups doesn't hold onto the original observation timestamps. See GH issue #43. Until this is fixed, I might have a hard time tackling this problem.
+
+# But anyway, fixing #43 is going to require digging into spaceTimeGroups anyway. So let's just go ahead and do that here.
+
+
+
+
+
+
+# get flight edges
+flightEdges <- vultureUtils::getFlightEdges(subsetted, roostPolygons = roostPolygons, quiet = T)
+```
+
+f
+
+Let's examine what gets returned here.
+
+```{r}
+dim(flightEdges) # okay, so I immediately notice that this is way fewer edges than Nitika returned (on the order of 150,000 in one month). What's going on?
+head(flightEdges)
+
+# I think I need to dive into my code and take extremely detailed notes about what it does. Time to go examine the source code for vultureUtils::getFlightEdges.
+```
+
+How many co-feeding, co-flight, co-roosting per month, total? Per individual? \*\*priority.
+
+For consecutive 10-minute slices, do they count as multiple or one
+
+What is the duration of "an interaction"
+
+Stop criterion: need to have stopped interacting for two consecutive 10-minute time slices?
+
+When does the SRI correction happen? Does it happen for each ten-minute interval, or overall?
+
+Do this first. When does she implement it?
+
+For each project, what's the region that we include and which individuals are we including? Use those for SRI.
+
+How does it deal with multiple interacting individuals?
