@@ -75,40 +75,44 @@ roostPolygons <- convertAndBuffer(roostPolygons, dist = roostBuffer)
 points <- filteredData[lengths(sf::st_intersects(filteredData, roostPolygons)) == 0,]
 
 # If there are no rows left after filtering, return an empty data frame with the appropriate format.
-# if(nrow(points) == 0){
-#   dummy <- data.frame(timegroup = as.integer(),
-#                       ID1 = as.character(),
-#                       ID2 = as.character(),
-#                       distance = as.numeric(),
-#                       minTimestamp = as.POSIXct(character()),
-#                       maxTimestamp = as.POSIXct(character()))
-#   warning("After filtering, the dataset had 0 rows. Returning an empty edge list.")
-#   if(includeAllVertices){
-#     toReturn <- list("edges" = dummy,
-#                      "allVertices" = uniqueIndivs)
-#     return(toReturn)
-#   }else{
-#     return(dummy)
-#   }
-# }else{
-#if(quiet == T){
-edges <- suppressWarnings(vultureUtils::spaceTimeGroups(dataset = points,
-                                                        distThreshold = distThreshold,
-                                                        consecThreshold = consecThreshold,
-                                                        timeThreshold = timeThreshold))
-#}
-# else{
-#   edges <- vultureUtils::spaceTimeGroups(dataset = points,
-#                                          distThreshold = distThreshold,
-#                                          consecThreshold = consecThreshold,
-#                                          timeThreshold = timeThreshold)}
-# if(includeAllVertices){
-#   toReturn <- list("edges" = edges,
-#                    "allVertices" = uniqueIndivs)
-# }else{
-#   return(edges)
-# }
-# }
+if(nrow(points) == 0){
+  dummy <- data.frame(timegroup = as.integer(),
+                      ID1 = as.character(),
+                      ID2 = as.character(),
+                      distance = as.numeric(),
+                      minTimestamp = as.POSIXct(character()),
+                      maxTimestamp = as.POSIXct(character()))
+  warning("After filtering, the dataset had 0 rows. Returning an empty edge list.")
+  if(includeAllVertices){
+    toReturn <- list("edges" = dummy,
+                     "allVertices" = uniqueIndivs)
+    #return(toReturn)
+  }else{
+    #return(dummy)
+  }
+}else{
+  if(quiet == T){
+    edges <- suppressWarnings(vultureUtils::spaceTimeGroups(dataset = points,
+                                                            distThreshold = distThreshold,
+                                                            consecThreshold = consecThreshold,
+                                                            timeThreshold = timeThreshold))
+  }else{
+    edges <- vultureUtils::spaceTimeGroups(dataset = points,
+                                           distThreshold = distThreshold,
+                                           consecThreshold = consecThreshold,
+                                           timeThreshold = timeThreshold)
+  }
+  if(includeAllVertices){
+    toReturn <- list("edges" = edges,
+                     "allVertices" = uniqueIndivs)
+  }else{
+    #return(edges)
+  }
+}
+nrow(edges)
+fromVU <- getEdges(dataset, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 1000, speedThreshUpper = NULL, speedThreshLower = 5, timeThreshold = "10 minutes", quiet = T, includeAllVertices = F)
+
+# I cannot for the life of me figure out why these row numbers are not lining up...
 ```
 
 ```{r}
