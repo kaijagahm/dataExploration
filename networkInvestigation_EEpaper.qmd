@@ -47,36 +47,68 @@ quiet = T
 includeAllVertices = F
 # Manually stepping through the guts of getEdges:
 dataset <- subsetted
+
+# Argument checks
+checkmate::assertDataFrame(dataset)
+checkmate::assertClass(roostPolygons, "sf")
+checkmate::assertNumeric(roostBuffer, len = 1)
+checkmate::assertNumeric(consecThreshold, len = 1)
+checkmate::assertNumeric(distThreshold, len = 1)
+checkmate::assertNumeric(speedThreshUpper, len = 1, null.ok = TRUE)
+checkmate::assertNumeric(speedThreshLower, len = 1, null.ok = TRUE)
+checkmate::assertCharacter(timeThreshold, len = 1)
+
+# Get all unique individuals before applying any filtering
+if(includeAllVertices){
+  uniqueIndivs <- unique(dataset$trackId)
+}
+
+# Restrict interactions based on ground speed
 filteredData <- vultureUtils::filterLocs(df = dataset,
                                          speedThreshUpper = speedThreshUpper,
                                          speedThreshLower = speedThreshLower)
+
+# Buffer the roost polygons
 roostPolygons <- convertAndBuffer(roostPolygons, dist = roostBuffer)
+
+# Exclude any points that fall within a (buffered) roost polygon
 points <- filteredData[lengths(sf::st_intersects(filteredData, roostPolygons)) == 0,]
+
+# If there are no rows left after filtering, return an empty data frame with the appropriate format.
+# if(nrow(points) == 0){
+#   dummy <- data.frame(timegroup = as.integer(),
+#                       ID1 = as.character(),
+#                       ID2 = as.character(),
+#                       distance = as.numeric(),
+#                       minTimestamp = as.POSIXct(character()),
+#                       maxTimestamp = as.POSIXct(character()))
+#   warning("After filtering, the dataset had 0 rows. Returning an empty edge list.")
+#   if(includeAllVertices){
+#     toReturn <- list("edges" = dummy,
+#                      "allVertices" = uniqueIndivs)
+#     return(toReturn)
+#   }else{
+#     return(dummy)
+#   }
+# }else{
+#if(quiet == T){
 edges <- suppressWarnings(vultureUtils::spaceTimeGroups(dataset = points,
                                                         distThreshold = distThreshold,
                                                         consecThreshold = consecThreshold,
                                                         timeThreshold = timeThreshold))
-
-# Now that we have the grouped data, let's investigate it.
-# How many groups?
-length(unique(edges$timegroup)) # 1308 time groups
-# How many individuals?
-length(unique(c(edges$ID1, edges$ID2))) #35 unique individuals
-# Are self edges included?
-edges %>%
-  filter(ID1 == ID2) # no, self edges are not included
-# Are edges included twice, once for each direction, within a timegroup?
-twice <- edges %>%
-  mutate(firstIndiv = ifelse(ID1 < ID2, ID1, ID2),
-         secondIndiv = ifelse(ID1 < ID2, ID2, ID1),
-         combo = paste(firstIndiv, secondIndiv)) %>%
-  group_by(timegroup, combo) %>%
-  filter(n() > 1)
-head(twice)
-# Okay, so there are no instances of the same edge showing up twice in opposite directions.
-# This has turned up a different problem, though, which is that we see one edge with the two individuals showing up in the *same* direction but with a different distance. I wonder what that's about.
-# Let's investigate!
-# Ah, in trying to investigate this, I've discovered that it's not easy to trace observations back to their source because spaceTimeGroups doesn't hold onto the original observation timestamps. See GH issue #43. Until this is fixed, I might have a hard time tackling this problem.
+#}
+# else{
+#   edges <- vultureUtils::spaceTimeGroups(dataset = points,
+#                                          distThreshold = distThreshold,
+#                                          consecThreshold = consecThreshold,
+#                                          timeThreshold = timeThreshold)}
+# if(includeAllVertices){
+#   toReturn <- list("edges" = edges,
+#                    "allVertices" = uniqueIndivs)
+# }else{
+#   return(edges)
+# }
+# }
 ```
 
 ```{r}
