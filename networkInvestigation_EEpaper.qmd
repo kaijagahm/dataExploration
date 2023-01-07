@@ -36,6 +36,7 @@ subsetted <- datAnnotCleaned %>%
 Now, using the functions in vultureUtils, create a co-flight edge list.
 
 ```{r}
+# Define the args that will be needed to manually step through getEdges.
 speedThreshLower = 5
 speedThreshUpper = NULL
 roostBuffer = 50
@@ -44,22 +45,23 @@ distThreshold = 1000
 timeThreshold = "10 minutes"
 quiet = T
 includeAllVertices = F
+# Manually stepping through the guts of getEdges:
 dataset <- subsetted
- filteredData <- vultureUtils::filterLocs(df = dataset,
-                                           speedThreshUpper = speedThreshUpper,
-                                           speedThreshLower = speedThreshLower)
+filteredData <- vultureUtils::filterLocs(df = dataset,
+                                         speedThreshUpper = speedThreshUpper,
+                                         speedThreshLower = speedThreshLower)
 roostPolygons <- convertAndBuffer(roostPolygons, dist = roostBuffer)
 points <- filteredData[lengths(sf::st_intersects(filteredData, roostPolygons)) == 0,]
 edges <- suppressWarnings(vultureUtils::spaceTimeGroups(dataset = points,
-                                                              distThreshold = distThreshold,
-                                                              consecThreshold = consecThreshold,
-                                                              timeThreshold = timeThreshold))
+                                                        distThreshold = distThreshold,
+                                                        consecThreshold = consecThreshold,
+                                                        timeThreshold = timeThreshold))
 
 # Now that we have the grouped data, let's investigate it.
 # How many groups?
 length(unique(edges$timegroup)) # 1308 time groups
 # How many individuals?
-length(c(unique(edges$ID1), unique(edges$ID2))) #67 unique individuals
+length(unique(c(edges$ID1, edges$ID2))) #35 unique individuals
 # Are self edges included?
 edges %>%
   filter(ID1 == ID2) # no, self edges are not included
@@ -75,30 +77,152 @@ head(twice)
 # This has turned up a different problem, though, which is that we see one edge with the two individuals showing up in the *same* direction but with a different distance. I wonder what that's about.
 # Let's investigate!
 # Ah, in trying to investigate this, I've discovered that it's not easy to trace observations back to their source because spaceTimeGroups doesn't hold onto the original observation timestamps. See GH issue #43. Until this is fixed, I might have a hard time tackling this problem.
-
-# But anyway, fixing #43 is going to require digging into spaceTimeGroups anyway. So let's just go ahead and do that here.
-
-
-
-
-
-
-# get flight edges
-flightEdges <- vultureUtils::getFlightEdges(subsetted, roostPolygons = roostPolygons, quiet = T)
 ```
 
-f
-
-Let's examine what gets returned here.
-
 ```{r}
-dim(flightEdges) # okay, so I immediately notice that this is way fewer edges than Nitika returned (on the order of 150,000 in one month). What's going on?
-head(flightEdges)
+# But anyway, fixing #43 is going to require digging into spaceTimeGroups anyway. So let's just go ahead and do that here.
 
-# I think I need to dive into my code and take extremely detailed notes about what it does. Time to go examine the source code for vultureUtils::getFlightEdges.
+# Gotta define some additional args that will be needed in order to step through spaceTimeGroups.
+crsToSet <- "WGS84"
+timestampCol = "timestamp"
+idCol = "trackId"
+latCol = "location_lat"
+longCol = "location_long"
+returnDist = TRUE
+fillNA = FALSE
+dataset <- subsetted
+# Argument checks
+checkmate::assertDataFrame(dataset)
+checkmate::assertClass(roostPolygons, "sf")
+checkmate::assertNumeric(roostBuffer, len = 1)
+checkmate::assertNumeric(consecThreshold, len = 1)
+checkmate::assertNumeric(distThreshold, len = 1)
+checkmate::assertNumeric(speedThreshUpper, len = 1, null.ok = TRUE)
+checkmate::assertNumeric(speedThreshLower, len = 1, null.ok = TRUE)
+checkmate::assertCharacter(timeThreshold, len = 1)
+
+# Get all unique individuals before applying any filtering
+if(includeAllVertices){
+  uniqueIndivs <- unique(dataset$trackId)
+}
+
+# Restrict interactions based on ground speed
+filteredData <- vultureUtils::filterLocs(df = dataset,
+                                         speedThreshUpper = speedThreshUpper,
+                                         speedThreshLower = speedThreshLower)
+
+# Buffer the roost polygons
+roostPolygons <- convertAndBuffer(roostPolygons, dist = roostBuffer)
+points <- filteredData[lengths(sf::st_intersects(filteredData, roostPolygons)) == 0,]
+# Manually step through the guts of spaceTimeGroups
+# argument checks
+checkmate::assertDataFrame(points)
+checkmate::assertNumeric(distThreshold, len = 1, lower = 0, finite = TRUE)
+checkmate::assertNumeric(consecThreshold, len = 1, lower = 0)
+checkmate::assertCharacter(timestampCol, len = 1)
+checkmate::assertCharacter(timeThreshold, len = 1)
+checkmate::assertCharacter(idCol, len = 1)
+checkmate::assertCharacter(latCol, len = 1)
+checkmate::assertCharacter(longCol, len = 1)
+checkmate::assertLogical(returnDist, len = 1)
+checkmate::assertLogical(fillNA, len = 1)
+"sf" %in% class(points) # T
+is.na(sf::st_crs(points)) # F (already has coords)
+points <- points %>%
+  mutate(lon = sf::st_coordinates(.)[,1],
+         lat = sf::st_coordinates(.)[,2]) %>%
+  sf::st_transform(32636) %>% # transform to israel utm
+  mutate(utmE = sf::st_coordinates(.)[,1],
+         utmN = sf::st_coordinates(.)[,2]) %>%
+  sf::st_drop_geometry() # spatsoc won't work if this is still an sf object.
+
+# convert the timestamp column to posixct
+points <- points %>%
+  mutate({{timestampCol}} := as.POSIXct(.data[[timestampCol]], tz = "UTC"))
+
+# convert to a data.table for spatsoc
+data.table::setDT(points)
+
+points <- spatsoc::group_times(points, datetime = timestampCol, threshold = timeThreshold)
+
+timegroupData <- points %>% # save information about when each timegroup starts and ends.
+  dplyr::select(.data[[timestampCol]], .data$timegroup) %>%
+  dplyr::group_by(.data$timegroup) %>%
+  dplyr::summarize(minTimestamp = min(.data[[timestampCol]]),
+                   maxTimestamp = max(.data[[timestampCol]]))
+timestamps <- points %>%
+  dplyr::select(timestamp, trackId, timegroup)
+
+# Okay, this is the output from spatsoc at the point before I've made any modifications from it. So the choices here are just the result of the spatsoc package.
+# AT THIS STAGE: 
+# How many timegroups?
+length(unique(points$timegroup)) #9684 unique time groups. This is way, way higher than what we ultimately end up with, but I think that's okay because most of these timegroups will not contain an interaction.
+# How many unique individuals?
+length(unique(points$trackId)) #39--this makes sense, it's a bit more than 35, but some individuals will be removed because they never interacted. 4 out of 39 being removed for having never interacted seems about right.
+
+# Okay, now let's group this spatially.
+points <- spatsoc::group_pts(points, threshold = distThreshold, id = idCol, coords = c("utmE", "utmN"), timegroup = "timegroup")
+
+head(points)
+
+# Next, this is passed to spatsoc::edge_dist()
+edges <- spatsoc::edge_dist(DT = points, threshold = distThreshold, id = idCol, coords = c("utmE", "utmN"), timegroup = "timegroup", returnDist = returnDist, fillNA = fillNA)
+
+# How many edges do we get?
+head(edges)
+nrow(edges) # 11182
+
+# Does this include self edges?
+edges %>% filter(ID1 == ID2) # yes, self edges are included
+
+# Does it include reverse edges?
+twice <- edges %>%
+  mutate(firstIndiv = ifelse(ID1 < ID2, ID1, ID2),
+         secondIndiv = ifelse(ID1 < ID2, ID2, ID1),
+         combo = paste(firstIndiv, secondIndiv)) %>%
+  group_by(timegroup, combo) %>%
+  filter(n() > 1)
+nrow(twice) #11182 # yes, it does. In fact, every non-self edge seems to be listed twice.
+
+# Next, I incorporate a step to remove self edges and duplicate edges
+edges <- edges %>%
+  dplyr::filter(as.character(.data$ID1) < as.character(.data$ID2))
+nrow(edges) # 5573, which is just a bit less than 11182/2.
+
+# Now we use the consecEdges function to detect edges appearing in consecutive time groups. Only retain the edges that occur in at least `consecThreshold` consecutive time steps.
+edgesFiltered <- consecEdges(edgeList = edges, consecThreshold = consecThreshold) %>%
+  dplyr::ungroup()
+
+# Join to the timegroup data
+edgesFiltered <- edgesFiltered %>%
+  dplyr::left_join(timegroupData, by = "timegroup")
+
+# Join to the timestamp data (can't do this yet. See github.com/kaijagahm/vultureUtils/issues/43).
+# test <- edgesFiltered %>%
+#   left_join(timestamps, by = c("timegroup", "ID1" = "trackId")) %>%
+#   rename("timestamp_ID1" = timestamp) %>%
+#   left_join(timestamps, by = c("timegroup", "ID2" = "trackId")) %>%
+#   rename("timestamp_ID2" = timestamp)
+
+nrow(edgesFiltered)
+
+# Just to check that I did this right, let's use getEdges
+crsToSet <- "WGS84"
+timestampCol = "timestamp"
+idCol = "trackId"
+latCol = "location_lat"
+longCol = "location_long"
+returnDist = TRUE
+fillNA = FALSE
+test <- vultureUtils::getFlightEdges(dataset = subsetted, roostPolygons = roostPolygons)
+nrow(test)
 ```
 
 How many co-feeding, co-flight, co-roosting per month, total? Per individual? \*\*priority.
+
+```{r}
+
+```
 
 For consecutive 10-minute slices, do they count as multiple or one
 
