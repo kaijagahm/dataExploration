@@ -36,17 +36,27 @@ subsetted <- datAnnotCleaned %>%
 Now, using the functions in vultureUtils, create a co-flight edge list.
 
 ```{r}
-# Define the args that will be needed to manually step through getEdges.
-speedThreshLower = 5
-speedThreshUpper = NULL
-roostBuffer = 50
-consecThreshold = 2
-distThreshold = 1000
-timeThreshold = "10 minutes"
-quiet = T
-includeAllVertices = F
-# Manually stepping through the guts of getEdges:
+# First, let's see what happens if we use getFlightEdges. 
+gfe <- getFlightEdges(subsetted, roostPolygons = roostPolygons, quiet = T, includeAllVertices = F)
+nrow(gfe) #1878 edges. This is what we're going for.
+
+# Now, take the same arguments and use getEdges. This should give the same result, because getFlightEdges is just a wrapper on getEdges. If it doesn't, then I know there's something actually wrong with the functions in vultureUtils.
+ge <- getEdges(subsetted, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 1000, speedThreshUpper = NULL, speedThreshLower = 5, timeThreshold = "10 minutes", quiet = T, includeAllVertices = F)
+nrow(ge) #1878 edges. Good, that lines up with gfe. Yay!
+```
+
+```{r}
+# Now, in order to make sure I understand the guts of the code, I'm going to manually step through the function. Going to use getEdges, instead of getFeedingEdges, to eliminate one level of complexity (since I've already demonstrated that they're equivalent.)
+
+# Define the arguments 
 dataset <- subsetted
+roostPolygons <- roostPolygons
+roostBuffer <- 50
+consecThreshold <- 2
+distThreshold <- 1000
+speedThreshUpper <- NULL
+speedThreshLower <- 5
+timeThreshold <- "10 minutes"
 
 # Argument checks
 checkmate::assertDataFrame(dataset)
@@ -86,9 +96,6 @@ if(nrow(points) == 0){
   if(includeAllVertices){
     toReturn <- list("edges" = dummy,
                      "allVertices" = uniqueIndivs)
-    #return(toReturn)
-  }else{
-    #return(dummy)
   }
 }else{
   if(quiet == T){
@@ -105,15 +112,13 @@ if(nrow(points) == 0){
   if(includeAllVertices){
     toReturn <- list("edges" = edges,
                      "allVertices" = uniqueIndivs)
-  }else{
-    #return(edges)
   }
 }
-nrow(edges)
-fromVU <- getEdges(dataset, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 1000, speedThreshUpper = NULL, speedThreshLower = 5, timeThreshold = "10 minutes", quiet = T, includeAllVertices = F)
 
-# I cannot for the life of me figure out why these row numbers are not lining up...
+nrow(edges) # okay, doing this gives us 1878 edges still.
+
 ```
+
 
 
 How many co-feeding, co-flight, co-roosting per month, total? Per individual? \*\*priority.
