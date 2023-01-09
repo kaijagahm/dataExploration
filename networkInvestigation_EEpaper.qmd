@@ -85,7 +85,7 @@ roostPolygonsBuffered <- convertAndBuffer(roostPolygons, dist = roostBuffer)
 # Exclude any points that fall within a (buffered) roost polygon
 points <- filteredData[lengths(sf::st_intersects(filteredData, roostPolygonsBuffered)) == 0,]
 
-# If there are no rows left after filtering, return an empty data frame with the appropriate format.
+#If there are no rows left after filtering, return an empty data frame with the appropriate format.
 if(nrow(points) == 0){
   dummy <- data.frame(timegroup = as.integer(),
                       ID1 = as.character(),
@@ -100,8 +100,15 @@ if(nrow(points) == 0){
   }
 }else{
   if(quiet == T){
+    timestampCol <- "timestamp"
+    crsToSet <- "WGS84"
+    idCol <- "trackId"
+    latCol <- "location_lat"
+    longCol <- "location_long"
+    returnDist <- T
+    fillNA <- F
     # argument checks
-    checkmate::assertDataFrame(dataset)
+    checkmate::assertDataFrame(points)
     checkmate::assertNumeric(distThreshold, len = 1, lower = 0, finite = TRUE)
     checkmate::assertNumeric(consecThreshold, len = 1, lower = 0)
     checkmate::assertCharacter(timestampCol, len = 1)
@@ -113,31 +120,31 @@ if(nrow(points) == 0){
     checkmate::assertLogical(fillNA, len = 1)
     
     # Set up an sf object for use.
-    if("sf" %in% class(dataset)){ # If dataset is an sf object...
-      if(is.na(sf::st_crs(dataset))){ # only fill in crs if it is missing
-        message(paste0("`dataset` is already an sf object but has no CRS. Setting CRS to ", crsToSet, "."))
-        dataset <- sf::st_set_crs(dataset, crsToSet)
+    if("sf" %in% class(points)){ # If dataset is an sf object...
+      if(is.na(sf::st_crs(points))){ # only fill in crs if it is missing
+        message(paste0("`points` is already an sf object but has no CRS. Setting CRS to ", crsToSet, "."))
+        dataset <- sf::st_set_crs(points, crsToSet)
       }
-    }else if(is.data.frame(dataset)){ # otherwise, if feedingSites is a data frame...
+    }else if(is.data.frame(points)){ # otherwise, if feedingSites is a data frame...
       # make sure it contains the lat and long cols
-      checkmate::assertChoice(latCol, names(dataset))
-      checkmate::assertChoice(longCol, names(dataset))
+      checkmate::assertChoice(latCol, names(points))
+      checkmate::assertChoice(longCol, names(points))
       
-      if(nrow(dataset) == 0){
+      if(nrow(points) == 0){
         stop("Dataset passed to vultureUtils::spaceTimeGroups has 0 rows. Cannot proceed with grouping.")
       }
       
       # convert to an sf object
-      dataset <- dataset %>%
+      points <- points %>%
         sf::st_as_sf(coords = c(.data[[longCol]], .data[[latCol]]), remove = FALSE) %>%
         sf::st_set_crs(crsToSet) # assign the CRS
       
     }else{ # otherwise, throw an error.
-      stop("`dataset` must be a data frame or an sf object.")
+      stop("`points` must be a data frame or an sf object.")
     }
     
     # Save lat and long coords, in case we need them later. Then, convert to UTM.
-    dataset <- dataset %>%
+    points <- points %>%
       dplyr::mutate(lon = sf::st_coordinates(.)[,1],
                     lat = sf::st_coordinates(.)[,2]) %>%
       sf::st_transform(32636) %>% # convert to UTM: we'll need this for calculating distance later.
@@ -146,30 +153,30 @@ if(nrow(points) == 0){
       sf::st_drop_geometry() # spatsoc won't work if this is still an sf object.
     
     # Convert the timestamp column to POSIXct.
-    dataset <- dataset %>%
+    points <- points %>%
       dplyr::mutate({{timestampCol}} := as.POSIXct(.data[[timestampCol]], tz = "UTC"))
     
     # Convert to a data table for spatsoc.
-    data.table::setDT(dataset)
+    data.table::setDT(points)
     
     # Group the points into timegroups using spatsoc::group_times.
-    dataset <- spatsoc::group_times(dataset, datetime = timestampCol, threshold = timeThreshold)
-    timegroupData <- dataset %>% # save information about when each timegroup starts and ends.
-      dplyr::select(.data[[timestampCol]], .data$timegroup) %>%
-      dplyr::group_by(.data$timegroup) %>%
+    points <- spatsoc::group_times(points, datetime = timestampCol, threshold = timeThreshold)
+    timegroupData <- points %>% # save information about when each timegroup starts and ends.
+      dplyr::select(.data[[timestampCol]], timegroup) %>%
+      dplyr::group_by(timegroup) %>%
       dplyr::summarize(minTimestamp = min(.data[[timestampCol]]),
                        maxTimestamp = max(.data[[timestampCol]]))
     
     # Retain timestamps for each point, with timegroup information appending. This will be joined back at the end, to fix #43 and make individual points traceable.
-    timestamps <- dataset %>%
-      dplyr::select(.data[[timestampCol]], .data[[idCol]], data$timegroup)
+    timestamps <- points %>%
+      dplyr::select(.data[[timestampCol]], .data[[idCol]], timegroup)
     
     # Group into point groups (spatial)
-    dataset <- spatsoc::group_pts(dataset, threshold = distThreshold, id = idCol,
-                                  coords = c("utmE", "utmN"), timegroup = "timegroup")
+    points <- spatsoc::group_pts(points, threshold = distThreshold, id = idCol,
+                                 coords = c("utmE", "utmN"), timegroup = "timegroup")
     
     # Generate edge lists by timegroup
-    edges <- spatsoc::edge_dist(DT = dataset, threshold = distThreshold, id = idCol,
+    edges <- spatsoc::edge_dist(DT = points, threshold = distThreshold, id = idCol,
                                 coords = c("utmE", "utmN"), timegroup = "timegroup",
                                 returnDist = returnDist, fillNA = fillNA)
     
@@ -178,8 +185,47 @@ if(nrow(points) == 0){
       dplyr::filter(as.character(.data$ID1) < as.character(.data$ID2))
     
     # Now create a list where the edge only stays if it occurred in at least `consecThreshold` consecutive time steps.
-    edgesFiltered <- consecEdges(edgeList = edges, consecThreshold = consecThreshold) %>%
+    # argument checks
+    edgeList <- edges
+    consecThreshold <- consecThreshold
+    id1Col <- "ID1"
+    id2Col <- "ID2"
+    timegroupCol <- "timegroup"
+    returnGroups <- F
+    
+    checkmate::assertDataFrame(edgeList)
+    checkmate::assertNumeric(consecThreshold, len = 1)
+    checkmate::assertCharacter(id1Col, len = 1)
+    checkmate::assertCharacter(id2Col, len = 1)
+    checkmate::assertChoice(id1Col, names(edgeList))
+    checkmate::assertChoice(id2Col, names(edgeList))
+    checkmate::assertCharacter(timegroupCol, len = 1)
+    checkmate::assertChoice(timegroupCol, names(edgeList))
+    checkmate::assertInteger(edgeList[[timegroupCol]])
+    checkmate::assertLogical(returnGroups, len = 1)
+    
+    # do the filtering
+    consec <- edgeList %>%
+      # for each edge, arrange by timegroup
+      dplyr::group_by(.data[[id1Col]], .data[[id2Col]]) %>%
+      dplyr::arrange(.data[[timegroupCol]], .by_group = TRUE) %>%
+      
+      # create a new index grp that groups rows into consecutive runs
+      dplyr::mutate("grp" = cumsum(c(1, diff(.data[[timegroupCol]]) != 1))) %>%
+      dplyr::ungroup() %>%
+      
+      # group by the new `grp` column and remove any `grp`s that have less than `consecThreshold` rows (i.e. less than `consecThreshold` consecutive time groups for that edge)
+      dplyr::group_by(.data[[id1Col]], .data[[id2Col]], .data$grp) %>%
+      dplyr::filter(dplyr::n() >= consecThreshold) %>%
       dplyr::ungroup()
+    
+    # only return the group column if it's asked for.
+    if(returnGroups == FALSE){
+      consec <- consec %>%
+        dplyr::ungroup() %>%
+        dplyr::select(-.data$grp)
+    }
+    edgesFiltered <- consec
     
     # Join to the timegroup data
     edgesFiltered <- edgesFiltered %>%
@@ -200,7 +246,7 @@ if(nrow(points) == 0){
   }
 }
 
-nrow(edges) # okay, doing this gives us 1878 edges still.
+nrow(edges) # okay, doing this gives us 1878 edges still. Hooray!
 
 ```
 
