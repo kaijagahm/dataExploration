@@ -247,27 +247,113 @@ if(nrow(points) == 0){
 }
 
 nrow(edges) # okay, doing this gives us 1878 edges still. Hooray!
-
 ```
-
-
 
 How many co-feeding, co-flight, co-roosting per month, total? Per individual? \*\*priority.
 
 ```{r}
+flight <- getFlightEdges(subsetted, roostPolygons = roostPolygons, quiet = T, includeAllVertices = F)
+feeding <- getFeedingEdges(subsetted, roostPolygons = roostPolygons, quiet = T, includeAllVertices = F)
+
+# Make graphs by month
+flight <- flight %>%
+  mutate(month = lubridate::month(minTimestamp),
+         year = lubridate::year(minTimestamp),
+         type = "flight")
+
+feeding <- feeding %>%
+  mutate(month = lubridate::month(minTimestamp),
+         year = lubridate::year(minTimestamp),
+         type = "feeding")
+
+ff <- bind_rows(flight, feeding)
+
+## plots
+summ <- ff %>%
+  group_by(type, month, year) %>%
+  summarize(nEdges = n())
+
+summ %>%
+  ggplot(aes(x = lubridate::ym(paste(year, month)), y = nEdges))+
+  geom_col(aes(fill = type))+
+  facet_wrap(~type, scales = "free_y")+
+  theme_classic()
+  
 
 ```
 
-For consecutive 10-minute slices, do they count as multiple or one
+For consecutive 10-minute slices, do they count as multiple or one?
+```{r}
+# I believe they're being counted as multiple interactions. For example, let's look at co-flight.
+head(flight)
+
+# Let's look at some from Noa's example screenshot.
+indivs <- c("A03w", "A05w")
+example <- flight %>%
+  filter(ID1 %in% indivs & ID2 %in% indivs)
+
+# does this include self edges? I think I have taken them out.
+example %>% filter(ID1 == ID2) # good, there are none.
+
+# does this include multiple during the same time slice?
+example %>% group_by(timegroup) %>%
+  summarize(n = n()) %>%
+  filter(n > 1) # nope, I've removed all duplicate edges. This is as it should be.
+
+# Consecutive time slices:
+View(example) # as we can see, we have interactions in consecutive time slices. Those are treated as separate edges in the network.
+``` 
+
 
 What is the duration of "an interaction"
 
 Stop criterion: need to have stopped interacting for two consecutive 10-minute time slices?
+```{r}
+# Here: test out what would happen if we condensed interactions and added duration information.
+```
+
 
 When does the SRI correction happen? Does it happen for each ten-minute interval, or overall?
-
-Do this first. When does she implement it?
+Do this first. When does Nitika implement it in her code? [I just checked, and it looks like she does it at the end.]
 
 For each project, what's the region that we include and which individuals are we including? Use those for SRI.
+```{r}
+# Okay, so Nitika defines SRI as the ratio of [number of timegroups in which both individuals interact (aka co-occurrences)]/[number of timegroups in which both individuals occur in the dataset but don't necessarily interact (simultaneous datapoints)].
+# This seems a bit different from the definition of SRI found e.g. here: https://dshizuka.github.io/networkanalysis/networktypes_socialnetworks.html
+uniqueIndivs <- unique(subsetted$trackId)
+allPairs <- expand.grid(uniqueIndivs, uniqueIndivs) %>%
+  mutate(across(everything(), as.character)) %>% # remove duplicates and self edges
+  filter(Var1 > Var2)
+indivTimegroupOccurrences <- flight %>%
+  select(timegroup, ID1, ID2) %>%
+  pivot_longer(cols = -timegroup, values_to = "trackId") %>%
+  select(-name) %>%
+  distinct() %>%
+  arrange(trackId, timegroup)
+
+# how many timegroups each pair of individuals *co-occurred* in
+sameTimegroup <- crossprod(table(indivTimegroupOccurrences))
+sameTimegroup[upper.tri(sameTimegroup)] <- 0
+sameTimegroupLong <- as.data.frame.table(sameTimegroup) %>%
+  filter(trackId != trackId.1) %>%
+  filter(Freq != 0) %>%
+  rename("ID1" = trackId,
+         "ID2" = trackId.1) %>%
+  mutate(across(c("ID1", "ID2"), as.character),
+         type = "coOccur")
+
+# how many timegroups each pair of individuals *interacted* in
+interactTimegroup <- flight %>%
+  select(timegroup, ID1, ID2) %>%
+  group_by(ID1, ID2) %>%
+  summarize("Freq" = n()) %>%
+  ungroup() %>%
+  mutate(type = "interact")
+
+sri <- bind_rows(sameTimegroupLong, interactTimegroup) %>%
+  pivot_wider(id_cols = c("ID1", "ID2"), names_from = "type", values_from = "Freq")
+```
+
+
 
 How does it deal with multiple interacting individuals?
