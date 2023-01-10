@@ -308,10 +308,150 @@ View(example) # as we can see, we have interactions in consecutive time slices. 
 
 
 What is the duration of "an interaction"
-
-Stop criterion: need to have stopped interacting for two consecutive 10-minute time slices?
 ```{r}
-# Here: test out what would happen if we condensed interactions and added duration information.
+timegroupData_flight <- flight %>%
+  select(timegroup, minTimestamp, maxTimestamp, month, year) %>%
+  distinct()
+
+timegroupData_feeding <- feeding %>%
+  select(timegroup, minTimestamp, maxTimestamp, month, year) %>%
+  distinct()
+
+durations_flight <- flight %>%
+  group_by(ID1, ID2) %>%
+  arrange(timegroup, .by_group = T) %>%
+  group_by(ID1, ID2) %>%
+  mutate(diff = c(0, diff(timegroup) - 1)) %>%
+  group_by(ID1, ID2, cumsum(diff)) %>%
+  summarize(firstTimegroup = first(timegroup),
+            lastTimegroup = last(timegroup),
+            nTimegroups = n()) %>%
+  ungroup() %>%
+  left_join(timegroupData_flight %>% select(timegroup, "monthStart" = month, "yearStart" = year), by = c("firstTimegroup" = "timegroup")) %>%
+  left_join(timegroupData_flight %>% select(timegroup, "monthEnd" = month, "yearEnd" = year), by = c("lastTimegroup" = "timegroup"))
+
+head(durations_flight)
+
+durations_feeding <- feeding %>%
+  group_by(ID1, ID2) %>%
+  arrange(timegroup, .by_group = T) %>%
+  group_by(ID1, ID2) %>%
+  mutate(diff = c(0, diff(timegroup) - 1)) %>%
+  group_by(ID1, ID2, cumsum(diff)) %>%
+  summarize(firstTimegroup = first(timegroup),
+            lastTimegroup = last(timegroup),
+            nTimegroups = n()) %>%
+  ungroup() %>%
+  left_join(timegroupData_feeding %>% select(timegroup, "monthStart" = month, "yearStart" = year), by = c("firstTimegroup" = "timegroup")) %>%
+  left_join(timegroupData_feeding %>% select(timegroup, "monthEnd" = month, "yearEnd" = year), by = c("lastTimegroup" = "timegroup"))
+
+head(durations_feeding)
+
+# Keeping in mind that the minimum duration has to be 2 based on how consecThreshold was defined in our function, what's the distribution of durations of interactions?
+durations <- durations_flight %>%
+  mutate(type = "flight") %>%
+  bind_rows(durations_feeding %>%
+              mutate(type = "feeding"))
+
+durations %>%
+  ggplot(aes(x = nTimegroups*10))+
+  geom_histogram()+
+  theme_classic()+
+  ylab("Frequency")+
+  xlab("Duration of interaction (minutes)")+
+  facet_wrap(~type)
+
+durations %>%
+  ggplot(aes(x = nTimegroups*10, col = type))+
+  geom_density(size = 1.5)+
+  theme_classic()+
+  ylab("Frequency")+
+  xlab("Duration of interaction (minutes)")
+```
+
+Investigate long durations (flight)
+```{r}
+# Some of these seem unusually large. Let's investigate.
+durations_flight %>%
+  filter(nTimegroups > 10)
+# hmm, that's suspicious. Why are all of these between the same two individuals?
+
+durations_flight %>%
+  filter(nTimegroups > 6) %>%
+  arrange(nTimegroups)
+
+# Looking at the longest one, between A00w and J12w
+check <- flight %>%
+  filter(timegroup >= 322 & timegroup <= 347 & ID1 == "A00w" & ID2 == "J12w")
+
+# Extract the timestamps and go back to the data
+mn <- min(check$minTimestamp)
+mx <- max(check$maxTimestamp)
+
+checkData <- subsetted %>% filter(trackId %in% c("A00w", "J12w"), timestamp >= mn, timestamp <= mx) %>%
+  sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
+  sf::st_set_crs("WGS84")
+
+mapview::mapview(checkData, zcol = "trackId") # huh, so they seem to be flying together for a very long way, never more than a couple hundred meters apart. This strikes me as a bit suspicious. Do they actually fly that tightly together? Or was this a mis-recording of a single bird?
+
+# Let me check another one that's not quite as long
+durations_flight %>%
+  filter(nTimegroups > 6) %>%
+  arrange(nTimegroups)
+
+# Looking at the longest one, between A00w and J12w
+check <- flight %>%
+  filter(timegroup >= 1007 & timegroup <= 1014 & ID1 == "T25b" & ID2 == "T76w")
+
+# Extract the timestamps and go back to the data
+mn <- min(check$minTimestamp)
+mx <- max(check$maxTimestamp)
+
+checkData <- subsetted %>% filter(trackId %in% c("T25b", "T76w"), timestamp >= mn, timestamp <= mx) %>%
+  sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
+  sf::st_set_crs("WGS84")
+
+mapview::mapview(checkData, zcol = "trackId") # looks pretty similar to the last one. But two different individuals. Maybe they just do this periodically!
+```
+
+
+Re-examine the number of interactions per month after incorporating durations.
+```{r}
+durations_summary <- durations %>%
+  mutate(myStart = lubridate::my(paste(monthStart, yearStart))) %>%
+  group_by(type, myStart) %>%
+  summarize(nInteractions = n())
+
+# absolute numbers, fixed y scale
+durations_summary %>%
+  ggplot(aes(x = myStart, y = nInteractions, fill = type))+
+  geom_col()+
+  facet_wrap(~type)+
+  theme_classic()+
+  ylab("Number of interactions")+
+  xlab("Month of interaction start")+
+  theme(legend.position = "none")
+
+# absolute numbers, free y scale
+durations_summary %>%
+  ggplot(aes(x = myStart, y = nInteractions, fill = type))+
+  geom_col()+
+  facet_wrap(~type, scales = "free_y")+
+  theme_classic()+
+  ylab("Number of interactions")+
+  xlab("Month of interaction start")+
+  theme(legend.position = "none") # basically the same pattern, just fewer flight interactions than feeding interactions.
+
+# Duration of interactions, by month
+head(durations)
+durations %>%
+  mutate(myStart = factor(lubridate::my(paste(monthStart, yearStart)))) %>%
+  ggplot(aes(x = myStart, y = log(nTimegroups)))+
+  geom_boxplot(aes(fill = type))+
+  facet_wrap(~type)+
+  theme_classic()+
+  ylab("Number of timegroups (log-transformed)")+
+  xlab("")
 ```
 
 
