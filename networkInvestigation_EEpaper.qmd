@@ -11,6 +11,7 @@ editor: visual
 library(vultureUtils)
 library(tidyverse)
 library(sf)
+library(igraph)
 ```
 
 For this investigation, I'm going to be working with data from December 2020 (2020-12-01) through June 2021 (2021-06-30), because that's the time interval that was used for the EE paper.
@@ -58,6 +59,7 @@ speedThreshUpper <- NULL
 speedThreshLower <- 5
 timeThreshold <- "10 minutes"
 quiet <- T
+includeAllVertices <- F
 
 # Argument checks
 checkmate::assertDataFrame(dataset)
@@ -160,23 +162,23 @@ if(nrow(points) == 0){
     data.table::setDT(points)
     
     # Group the points into timegroups using spatsoc::group_times.
-    points <- spatsoc::group_times(points, datetime = timestampCol, threshold = timeThreshold)
-    timegroupData <- points %>% # save information about when each timegroup starts and ends.
+    points_timegrouped <- spatsoc::group_times(points, datetime = timestampCol, threshold = timeThreshold)
+    timegroupData <- points_timegrouped %>% # save information about when each timegroup starts and ends.
       dplyr::select(.data[[timestampCol]], timegroup) %>%
       dplyr::group_by(timegroup) %>%
       dplyr::summarize(minTimestamp = min(.data[[timestampCol]]),
                        maxTimestamp = max(.data[[timestampCol]]))
     
     # Retain timestamps for each point, with timegroup information appending. This will be joined back at the end, to fix #43 and make individual points traceable.
-    timestamps <- points %>%
+    timestamps <- points_timegrouped %>%
       dplyr::select(.data[[timestampCol]], .data[[idCol]], timegroup)
     
     # Group into point groups (spatial)
-    points <- spatsoc::group_pts(points, threshold = distThreshold, id = idCol,
+    points_spacetimegrouped <- spatsoc::group_pts(points_timegrouped, threshold = distThreshold, id = idCol,
                                  coords = c("utmE", "utmN"), timegroup = "timegroup")
     
     # Generate edge lists by timegroup
-    edges <- spatsoc::edge_dist(DT = points, threshold = distThreshold, id = idCol,
+    edges <- spatsoc::edge_dist(DT = points_spacetimegrouped, threshold = distThreshold, id = idCol,
                                 coords = c("utmE", "utmN"), timegroup = "timegroup",
                                 returnDist = returnDist, fillNA = fillNA)
     
@@ -320,40 +322,69 @@ For each project, what's the region that we include and which individuals are we
 ```{r}
 # Okay, so Nitika defines SRI as the ratio of [number of timegroups in which both individuals interact (aka co-occurrences)]/[number of timegroups in which both individuals occur in the dataset but don't necessarily interact (simultaneous datapoints)].
 # This seems a bit different from the definition of SRI found e.g. here: https://dshizuka.github.io/networkanalysis/networktypes_socialnetworks.html
-uniqueIndivs <- unique(subsetted$trackId)
-allPairs <- expand.grid(uniqueIndivs, uniqueIndivs) %>%
-  mutate(across(everything(), as.character)) %>% # remove duplicates and self edges
+
+# M1: adjacency matrix for interactions (aka spatio-temporal co-occurrence)
+el <- flight %>%
+  select(ID1, ID2)
+g1 <- igraph::graph.data.frame(el, directed = F)
+m1 <- get.adjacency(g1, sparse = F)
+colnames(m1) <- row.names(m1)
+
+# M2: adjacency matrix for temporal co-occurrence (but not spatial)
+head(points_timegrouped)
+el_m2 <- points_timegrouped %>%
+  select(trackId, timegroup) %>%
+  distinct()
+timegroupList <- el_m2 %>%
+  group_by(timegroup) %>%
+  group_split()
+timegroupEdgelist <- timegroupList %>%
+  map_dfr(., ~.x %>% 
+        pull(trackId) %>% 
+        expand.grid(., ., stringsAsFactors = F))
+
+# now this is tricky. We want to remove self edges and remove reverse edges, but we *don't* want to remove duplicates.
+test <- timegroupEdgelist %>%
   filter(Var1 > Var2)
-indivTimegroupOccurrences <- flight %>%
-  select(timegroup, ID1, ID2) %>%
-  pivot_longer(cols = -timegroup, values_to = "trackId") %>%
-  select(-name) %>%
-  distinct() %>%
-  arrange(trackId, timegroup)
+test %>%
+  group_by(Var1, Var2) %>%
+  summarize(n = n()) %>%
+  filter(n > 1) # okay, good, there are still many that are greater than 1
+test %>%
+  filter(Var1 == Var2) # good, no self edges.
 
-# how many timegroups each pair of individuals *co-occurred* in
-sameTimegroup <- crossprod(table(indivTimegroupOccurrences))
-sameTimegroup[upper.tri(sameTimegroup)] <- 0
-sameTimegroupLong <- as.data.frame.table(sameTimegroup) %>%
-  filter(trackId != trackId.1) %>%
-  filter(Freq != 0) %>%
-  rename("ID1" = trackId,
-         "ID2" = trackId.1) %>%
-  mutate(across(c("ID1", "ID2"), as.character),
-         type = "coOccur")
+g2 <- igraph::graph.data.frame(timegroupEdgelist, directed = F)
+m2 <- get.adjacency(g2, sparse = F)
+colnames(m2) <- row.names(m2)
+  
 
-# how many timegroups each pair of individuals *interacted* in
-interactTimegroup <- flight %>%
-  select(timegroup, ID1, ID2) %>%
-  group_by(ID1, ID2) %>%
-  summarize("Freq" = n()) %>%
-  ungroup() %>%
-  mutate(type = "interact")
+dim(m1)
+dim(m2)
 
-sri <- bind_rows(sameTimegroupLong, interactTimegroup) %>%
-  pivot_wider(id_cols = c("ID1", "ID2"), names_from = "type", values_from = "Freq")
+subset_m2 <- m2[indivs_m1, indivs_m1]
+dim(subset_m2)
+dim(m1)
+
+all(m1 <= subset_m2) # yay!!
+
+sriMatrix <- m1/subset_m2
 ```
 
 
-
 How does it deal with multiple interacting individuals?
+```{r}
+# Here's an example of a timegroup that contains a lot of individuals
+bigGroup <- flight %>%
+  group_by(timegroup) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  filter(n == max(n, na.rm = T)) %>%
+  filter(timegroup == timegroup[1])
+
+# How many unique individuals?
+length(unique(c(bigGroup$ID1, bigGroup$ID2))) # 10 unique individuals
+nrow(bigGroup) # 22 edges during this timegroup
+
+# Multiple interacting individuals are just given their own edges
+```
+
