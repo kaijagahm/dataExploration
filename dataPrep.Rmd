@@ -16,21 +16,21 @@ library(tidyverse)
 library(feather) # for lightweight data storage
 ```
 
-# Download initial data--2020 through present
+# Download initial data--2020 through end of 2022
 ```{r}
 base::load("movebankCredentials/pw.Rda")
 MB.LoginObject <- movebankLogin(username = 'kaijagahm', password = pw)
 rm(pw)
 
-# dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T, dateTimeStartUTC = "2020-01-01 00:00", dateTimeEndUTC = "2022-10-31 00:00")
-# write_feather(dat, "data/dat.feather")
+#dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T, dateTimeStartUTC = "2020-01-01 00:00", dateTimeEndUTC = "2022-12-31 11:59")
+#write_feather(dat, "data/dat.feather")
 dat <- read_feather("data/dat.feather")
 ```
 
 Visualization: presence of vultures in the dataset over time.
 ```{r eval = FALSE}
 # Let's look at the presence of the vultures over time.
-unique(dat$trackId)
+# unique(dat$trackId)
 dates <- dat %>%
   dplyr::select(trackId, dateOnly) %>%
   distinct()
