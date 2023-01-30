@@ -17,88 +17,75 @@ library(profvis) # to see what's slowing the code down
 
 ## Load annotated data
 ```{r}
-datAnnot <- feather::read_feather("data/datAnnot.feather")
+load("data/datAnnotCleaned.Rda")
 # make this into an sf object:
-datAnnot <- datAnnot %>%
+datAnnotCleaned <- datAnnotCleaned %>%
   sf::st_as_sf(coords = c("location_long.1", "location_lat.1")) %>%
   sf::st_set_crs("WGS84") %>%
   mutate(timeOnly = stringr::str_extract(as.character(timestamp), "[0-9]{2}:[0-9]{2}:[0-9]{2}"))
-roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
-  sf::st_transform("WGS84")
+roostPolygons <- sf::st_read("data/roosts25_cutOffRegion.kml", quiet = TRUE) %>%
+  sf::st_transform("WGS84") %>%
+  select(-c("Name", "Description"))
 ```
 
-## Subset to seasons
+## Annotate for seasons
 ```{r}
-# Breeding season: December 2020-June 2021
-b_20_21 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2020-12-01 00:00"),
-         timestamp < lubridate::ymd_hm("2021-07-01 00:00"))
-
-# Non-breeding season: July 2021-November 2021
-nb_21 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2021-07-01 00:00"),
-         timestamp < lubridate::ymd_hm("2021-12-01 00:00"))
-
-# Breeding season: December 2021-June 2022
-b_21_22 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2021-12-01 00:00"),
-         timestamp < lubridate::ymd_hm("2022-07-01 00:00"))
-
-# Non-breeding season: July 2022-November 2022 # XXX this one's incomplete as of 2022-10-31
-nb_22 <- datAnnot %>%
-  filter(timestamp > lubridate::ymd_hm("2022-07-01 00:00"),
-         timestamp < lubridate::ymd_hm("2022-12-01 00:00"))
-
-# List them
-seasons <- list("b_20_21" = b_20_21, "nb_21" = nb_21, "b_21_22" = b_21_22, "nb_22" = nb_22)
-save(seasons, file = "data/seasons.Rda")
-load("data/seasons.Rda")
+# Breeding: December through June
+# Non-breeding: July through November
+datAnnotCleaned <- datAnnotCleaned %>%
+  mutate(season = case_when(lubridate::month(timestamp) %in% c(1:6) ~ "breeding_thisyear",
+                            lubridate::month(timestamp) == 12 ~ "breeding_nextyear",
+                            lubridate::month(timestamp) %in% c(7:11) ~ "nonbreeding",
+                            TRUE ~ NA_character_),
+         year = lubridate::year(timestamp),
+         seasonUnique = case_when(season == "breeding_thisyear" ~ paste(year, "breeding", sep = "_"),
+                                  season == "breeding_nextyear" ~ paste(year+1, "breeding", sep = "_"),
+                                  season == "nonbreeding" ~ paste(year, "nonbreeding", sep = "_")))
 ```
 
-### Characterize each season
+I had to treat the seasons weirdly above to account for the fact that there are months in a given calendar year that are considered to be part of two different breeding seasons.
+
+Now we can split the data by season:
 ```{r}
-# How many observations and how many unique individuals?
-nObs <- map_dbl(seasons, nrow)
-nUniqueIndivs <- map_dbl(seasons, ~.x %>% pull(trackId) %>% unique() %>% length())
-
-# Get unique dates for each
-dates <- map(seasons, ~{.x %>%
-    sf::st_drop_geometry() %>%
-    dplyr::select(trackId, dateOnly) %>%
-    distinct() %>%
-    group_by(trackId) %>%
-    mutate(nUniqueDates = length(unique(dateOnly))) %>%
-    ungroup()})
-```
-
-### Plot individuals' representation
-
-```{r}
-plots <- map2(.x = dates, .y = names(dates), ~{
-  p <- .x %>%
-    mutate(trackId = forcats::fct_reorder(trackId, nUniqueDates, max)) %>%
-    ggplot(aes(x = trackId, y = dateOnly))+
-    geom_point(size = 0.7)+
-    coord_flip()+
-    theme_classic()+
-    ggtitle(.y)
-})
-#walk(plots, print)
+seasons <- datAnnotCleaned %>%
+  group_by(seasonUnique) %>%
+  group_split(.keep = T)
+length(seasons)
 ```
 
 # Observed networks (as a basis for comparison)
 
 ## Get edge lists
+### Co-flight (1000 meters)
+```{r}
+#flightNetworks <- purrr::map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 1000, return = "both"))
+save(flightNetworks, file = "data/flightNetworks.Rda")
+```
+
+### Co-flight (50  meters)
+```{r}
+#feedingNetworks <- purrr::map(seasons, ~vultureUtils::getFeedingEdges(dataset = ., roostPolygons = roostPolygons, distThreshold = 50, return = "both"))
+save(feedingNetworks, file = "data/feedingNetworks.Rda")
+```
+
+### Co-roosting (distance-based, 500 meters)
+
+# First, have to obtain roost locations for this dataset.
+```{r}
+roosts <- map(seasons, ~vultureUtils::get_roosts_df(.x, id = "trackId"))
+testRoosts <- roosts[[6]]
+```
 
 ```{r}
-# Get edge lists
-obs_flightEdges_bySeason <- map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 350, includeAllVertices = T))
-save(obs_flightEdges_bySeason, file = "data/obs_flightEdges_bySeason.Rda")
-load("data/obs_flightEdges_bySeason.Rda")
-obs_feedingEdges_bySeason <- map(seasons, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, includeAllVertices = T))
-save(obs_feedingEdges_bySeason, file = "data/obs_feedingEdges_bySeason.Rda")
-load("data/obs_feedingEdges_bySeason.Rda")
+testDistance <- vultureUtils::getRoostEdges(dataset = testRoosts, mode = "distance", distThreshold = 500, return = "both")
 ```
+
+### Co-roosting (polygon-based)
+```{r}
+
+```
+
+
 
 ## Create networks
 
