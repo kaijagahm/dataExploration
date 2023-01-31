@@ -87,8 +87,9 @@ load("data/roostNetworks_distance.Rda")
 
 ### Co-roosting (polygon-based)
 ```{r}
-testPolygon <- vultureUtils::getRoostEdges(dataset = roosts[[6]], mode = "polygon", roostPolygons = roostPolygons, return = "both")
-roostNetworks_polygon <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "both"))
+# roostNetworks_polygon <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "both"))
+# save(roostNetworks_polygon, file = "data/roostNetworks_polygon.Rda")
+load("data/roostNetworks_polygon.Rda")
 ```
 
 
