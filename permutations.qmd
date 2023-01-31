@@ -59,30 +59,36 @@ length(seasons)
 ### Co-flight (1000 meters)
 ```{r}
 #flightNetworks <- purrr::map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 1000, return = "both"))
-save(flightNetworks, file = "data/flightNetworks.Rda")
+#save(flightNetworks, file = "data/flightNetworks.Rda")
+load("data/flightNetworks.Rda")
 ```
 
 ### Co-flight (50  meters)
 ```{r}
 #feedingNetworks <- purrr::map(seasons, ~vultureUtils::getFeedingEdges(dataset = ., roostPolygons = roostPolygons, distThreshold = 50, return = "both"))
-save(feedingNetworks, file = "data/feedingNetworks.Rda")
+#save(feedingNetworks, file = "data/feedingNetworks.Rda")
+load("data/feedingNetworks.Rda")
 ```
 
 ### Co-roosting (distance-based, 500 meters)
 
 # First, have to obtain roost locations for this dataset.
 ```{r}
-roosts <- map(seasons, ~vultureUtils::get_roosts_df(.x, id = "trackId"))
-testRoosts <- roosts[[6]]
+#roosts <- map(seasons, ~vultureUtils::get_roosts_df(.x, id = "trackId"))
+#save(roosts, file = "data/roosts.Rda")
+load("data/roosts.Rda")
 ```
 
 ```{r}
-testDistance <- vultureUtils::getRoostEdges(dataset = testRoosts, mode = "distance", distThreshold = 500, return = "both")
+#roostNetworks_distance <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "distance", distThreshold = 500, return = "both"))
+#save(roostNetworks_distance, file = "data/roostNetworks_distance.Rda")
+load("data/roostNetworks_distance.Rda")
 ```
 
 ### Co-roosting (polygon-based)
 ```{r}
-
+testPolygon <- vultureUtils::getRoostEdges(dataset = roosts[[6]], mode = "polygon", roostPolygons = roostPolygons, return = "both")
+roostNetworks_polygon <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "both"))
 ```
 
 
