@@ -25,6 +25,9 @@ Let's begin by getting that data. Since we want to remove invalid periods anyway
 
 ```{r load-subset-data}
 #| output: false
+#| echo: false
+#| warning: false
+#| message: false
 load("data/datAnnotCleaned.Rda")
 mask <- sf::st_read("data/CutOffRegion.kml")
 roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", 
@@ -37,6 +40,7 @@ subsetted <- datAnnotCleaned %>%
 Now, using the functions in vultureUtils, create a co-flight edge list.
 
 ```{r}
+#| echo: false
 # First, let's see what happens if we use getFlightEdges. 
 gfe <- getFlightEdges(subsetted, roostPolygons = roostPolygons, quiet = T, includeAllVertices = F)
 nrow(gfe) #1878 edges. This is what we're going for.
@@ -47,6 +51,8 @@ nrow(ge) #1878 edges. Good, that lines up with gfe. Yay!
 ```
 
 ```{r}
+#| echo: false
+#| output: false
 # Now, in order to make sure I understand the guts of the code, I'm going to manually step through the function. Going to use getEdges, instead of getFeedingEdges, to eliminate one level of complexity (since I've already demonstrated that they're equivalent.)
 
 # Define the arguments 
@@ -251,7 +257,7 @@ if(nrow(points) == 0){
 nrow(edges) # okay, doing this gives us 1878 edges still. Hooray!
 ```
 
-How many co-feeding, co-flight, co-roosting per month, total? Per individual? \*\*priority.
+How many co-feeding, co-flight, co-roosting per month, total?
 
 ```{r}
 flight <- getFlightEdges(subsetted, roostPolygons = roostPolygons, quiet = T, includeAllVertices = F)
@@ -275,16 +281,25 @@ summ <- ff %>%
   group_by(type, month, year) %>%
   summarize(nEdges = n())
 
+# Fixed y axis
+summ %>%
+  ggplot(aes(x = lubridate::ym(paste(year, month)), y = nEdges))+
+  geom_col(aes(fill = type))+
+  facet_wrap(~type)+
+  theme_classic()+
+  ggtitle("# interactions, timegroups separate")
+
+# Free y axis
 summ %>%
   ggplot(aes(x = lubridate::ym(paste(year, month)), y = nEdges))+
   geom_col(aes(fill = type))+
   facet_wrap(~type, scales = "free_y")+
-  theme_classic()
-  
-
+  theme_classic()+
+  ggtitle("# interactions, timegroups separate")
 ```
 
-For consecutive 10-minute slices, do they count as multiple or one?
+### For consecutive 10-minute slices, do they count as multiple or one?
+
 ```{r}
 # I believe they're being counted as multiple interactions. For example, let's look at co-flight.
 head(flight)
@@ -303,12 +318,14 @@ example %>% group_by(timegroup) %>%
   filter(n > 1) # nope, I've removed all duplicate edges. This is as it should be.
 
 # Consecutive time slices:
-View(example) # as we can see, we have interactions in consecutive time slices. Those are treated as separate edges in the network.
+head(example) # as we can see, we have interactions in consecutive time slices. Those are treated as separate edges in the network.
 ``` 
 
 
-What is the duration of "an interaction"
+### What is the duration of "an interaction"?
+
 ```{r}
+#| echo: false
 timegroupData_flight <- flight %>%
   select(timegroup, minTimestamp, maxTimestamp, month, year) %>%
   distinct()
@@ -352,9 +369,12 @@ durations <- durations_flight %>%
   mutate(type = "flight") %>%
   bind_rows(durations_feeding %>%
               mutate(type = "feeding"))
+```
 
+```{r}
+# Show duration graphs
 durations %>%
-  ggplot(aes(x = nTimegroups*10))+
+  ggplot(aes(x = nTimegroups*10, col = type, fill = type))+
   geom_histogram()+
   theme_classic()+
   ylab("Frequency")+
@@ -369,8 +389,10 @@ durations %>%
   xlab("Duration of interaction (minutes)")
 ```
 
-Investigate long durations (flight)
+### Investigate long durations (flight)
+
 ```{r}
+#| echo: false
 # Some of these seem unusually large. Let's investigate.
 durations_flight %>%
   filter(nTimegroups > 10)
@@ -388,11 +410,11 @@ check <- flight %>%
 mn <- min(check$minTimestamp)
 mx <- max(check$maxTimestamp)
 
-checkData <- subsetted %>% filter(trackId %in% c("A00w", "J12w"), timestamp >= mn, timestamp <= mx) %>%
+checkData1 <- subsetted %>% filter(trackId %in% c("A00w", "J12w"), timestamp >= mn, timestamp <= mx) %>%
   sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
   sf::st_set_crs("WGS84")
 
-mapview::mapview(checkData, zcol = "trackId") # huh, so they seem to be flying together for a very long way, never more than a couple hundred meters apart. This strikes me as a bit suspicious. Do they actually fly that tightly together? Or was this a mis-recording of a single bird?
+mapview::mapview(checkData1, zcol = "trackId") # huh, so they seem to be flying together for a very long way, never more than a couple hundred meters apart. This strikes me as a bit suspicious. Do they actually fly that tightly together? Or was this a mis-recording of a single bird?
 
 # Let me check another one that's not quite as long
 durations_flight %>%
@@ -407,15 +429,15 @@ check <- flight %>%
 mn <- min(check$minTimestamp)
 mx <- max(check$maxTimestamp)
 
-checkData <- subsetted %>% filter(trackId %in% c("T25b", "T76w"), timestamp >= mn, timestamp <= mx) %>%
+checkData2 <- subsetted %>% filter(trackId %in% c("T25b", "T76w"), timestamp >= mn, timestamp <= mx) %>%
   sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
   sf::st_set_crs("WGS84")
 
-mapview::mapview(checkData, zcol = "trackId") # looks pretty similar to the last one. But two different individuals. Maybe they just do this periodically!
+mapview::mapview(checkData2, zcol = "trackId") # looks pretty similar to the last one. But two different individuals. Maybe they just do this periodically!
 ```
 
+### \# Monthly interactions, grouping timegroups
 
-Re-examine the number of interactions per month after incorporating durations.
 ```{r}
 durations_summary <- durations %>%
   mutate(myStart = lubridate::my(paste(monthStart, yearStart))) %>%
@@ -430,7 +452,8 @@ durations_summary %>%
   theme_classic()+
   ylab("Number of interactions")+
   xlab("Month of interaction start")+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  ggtitle("# interactions, timegroups separate")
 
 # absolute numbers, free y scale
 durations_summary %>%
@@ -440,7 +463,8 @@ durations_summary %>%
   theme_classic()+
   ylab("Number of interactions")+
   xlab("Month of interaction start")+
-  theme(legend.position = "none") # basically the same pattern, just fewer flight interactions than feeding interactions.
+  theme(legend.position = "none")+ # basically the same pattern, just fewer flight interactions than feeding interactions.
+  ggtitle("# interactions, timegroups separate")
 
 # Duration of interactions, by month
 head(durations)
@@ -451,15 +475,18 @@ durations %>%
   facet_wrap(~type)+
   theme_classic()+
   ylab("Number of timegroups (log-transformed)")+
-  xlab("")
+  xlab("")+
+  ggtitle("# interactions, timegroups separate")
 ```
 
+### SRI
 
 When does the SRI correction happen? Does it happen for each ten-minute interval, or overall?
 Do this first. When does Nitika implement it in her code? [I just checked, and it looks like she does it at the end.]
 
 For each project, what's the region that we include and which individuals are we including? Use those for SRI.
 ```{r}
+#| include: false
 # Okay, so Nitika defines SRI as the ratio of [number of timegroups in which both individuals interact (aka co-occurrences)]/[number of timegroups in which both individuals occur in the dataset but don't necessarily interact (simultaneous datapoints)].
 # This seems a bit different from the definition of SRI found e.g. here: https://dshizuka.github.io/networkanalysis/networktypes_socialnetworks.html
 
@@ -501,7 +528,7 @@ colnames(m2) <- row.names(m2)
 dim(m1)
 dim(m2)
 
-subset_m2 <- m2[indivs_m1, indivs_m1]
+subset_m2 <- m2[row.names(m1), row.names(m1)]
 dim(subset_m2)
 dim(m1)
 
@@ -511,7 +538,8 @@ sriMatrix <- m1/subset_m2
 ```
 
 
-How does it deal with multiple interacting individuals?
+### Multiple interacting individuals
+
 ```{r}
 # Here's an example of a timegroup that contains a lot of individuals
 bigGroup <- flight %>%
@@ -525,6 +553,6 @@ bigGroup <- flight %>%
 length(unique(c(bigGroup$ID1, bigGroup$ID2))) # 10 unique individuals
 nrow(bigGroup) # 22 edges during this timegroup
 
-# Multiple interacting individuals are just given their own edges
+# Multiple interacting individuals are just given their own edges. This almost certainly accounts for why the feeding network has so many more edges than the flight network.
 ```
 
