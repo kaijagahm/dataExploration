@@ -58,15 +58,15 @@ length(seasons)
 ## Get edge lists
 ### Co-flight (1000 meters)
 ```{r}
-#flightNetworks <- purrr::map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 1000, return = "both"))
-#save(flightNetworks, file = "data/flightNetworks.Rda")
+flightNetworks <- purrr::map(seasons, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 1000, return = "both"))
+save(flightNetworks, file = "data/flightNetworks.Rda")
 load("data/flightNetworks.Rda")
 ```
 
 ### Co-flight (50  meters)
 ```{r}
-#feedingNetworks <- purrr::map(seasons, ~vultureUtils::getFeedingEdges(dataset = ., roostPolygons = roostPolygons, distThreshold = 50, return = "both"))
-#save(feedingNetworks, file = "data/feedingNetworks.Rda")
+feedingNetworks <- purrr::map(seasons, ~vultureUtils::getFeedingEdges(dataset = ., roostPolygons = roostPolygons, distThreshold = 50, return = "both"))
+save(feedingNetworks, file = "data/feedingNetworks.Rda")
 load("data/feedingNetworks.Rda")
 ```
 
@@ -74,8 +74,8 @@ load("data/feedingNetworks.Rda")
 
 # First, have to obtain roost locations for this dataset.
 ```{r}
-#roosts <- map(seasons, ~vultureUtils::get_roosts_df(.x, id = "trackId"))
-#save(roosts, file = "data/roosts.Rda")
+roosts <- map(seasons, ~vultureUtils::get_roosts_df(.x, id = "trackId"))
+save(roosts, file = "data/roosts.Rda")
 load("data/roosts.Rda")
 ```
 
@@ -87,10 +87,31 @@ load("data/roostNetworks_distance.Rda")
 
 ### Co-roosting (polygon-based)
 ```{r}
-# roostNetworks_polygon <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "both"))
-# save(roostNetworks_polygon, file = "data/roostNetworks_polygon.Rda")
+#roostNetworks_polygon <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "both"))
+#save(roostNetworks_polygon, file = "data/roostNetworks_polygon.Rda")
 load("data/roostNetworks_polygon.Rda")
 ```
+
+## Create networks
+### Flight
+```{r}
+flightSRI <- map(flightNetworks, "sri")
+test <- flightSRI[[6]]
+g <- vultureUtils::makeGraph(mode = "sri", data = test, weighted = F, id1Col = "ID1", id2Col = "ID2")
+plot(g, mode = "undirected", vertex.size = 10, edge.width = 50*as.numeric(E(g)$weight))
+```
+
+### Feeding
+```{r}
+feedingSRI <- map(feedingNetworks, "sri")
+```
+
+### Roost (distance and polygon)
+```{r}
+roostSRI_distance <- map(roostNetworks_distance, "sri")
+roostSRI_polygon <- map(roostNetworks_polygon, "sri")
+```
+
 
 
 
