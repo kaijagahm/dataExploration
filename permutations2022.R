@@ -7,6 +7,7 @@ library(feather)
 library(sf)
 library(ggraph)
 library(tidygraph)
+source("funs_datastreamPermutations.R")
 
 load("data/datAnnotCleaned.Rda")
 roostPolygons <- sf::st_read("data/roosts25_cutOffRegion.kml")
@@ -94,42 +95,105 @@ allVerts <- map(g_flight, ~V(.x)) %>% unlist() %>% names() %>% unique()
 flightLayout <- layout_with_fr(graph = g_flight[[1]])
 plot(test, vertex.size = 10, edge.width = 30*E(test)$weight, edge.color = "black", vertices = allVerts)
 
+# Test data for permutations--let's use just one week of data.
+testWeek <- months[[1]] %>%
+  filter(lubridate::ymd(dateOnly) >= lubridate::ymd("2022-01-01") & lubridate::ymd(dateOnly) <= lubridate::ymd("2022-01-07"))
+
+# Get roosts for this test week
+testWeekRoosts <- vultureUtils::get_roosts_df(df = testWeek, id = "trackId")
+save(testWeekRoosts, file = "data/testWeekRoosts.Rda")
+
+# Get all four types of network
+getNetworks <- function(dataset, roosts, roostPolygons){
+  testWeekFlight <- getFlightEdges(dataset, roostPolygons, distThreshold = 1000, return = "both")
+  testWeekFeeding <- getFeedingEdges(dataset, roostPolygons, distThreshold = 50, return = "both")
+  testWeekRoostD <- getRoostEdges(roosts, mode = "distance", idCol = "trackId", return = "both", distThreshold = 200)
+  testWeekRoostP <- getRoostEdges(roosts, mode = "polygon", roostPolygons = roostPolygons, idCol = "trackId", return = "both")
+  outList <- list("flight" = testWeekFlight, "feeding" = testWeekFeeding, "roostD" = testWeekRoostD, "roostP" = testWeekRoostP)
+}
+
+testWeekNetworks <- getNetworks(dataset = testWeek, roosts = testWeekRoosts, roostPolygons = roostPolygons)
+save(testWeekNetworks, file = "data/testWeekNetworks.Rda")
+
+# Make graphs
+testWeekGraphs <- map(testWeekNetworks, ~makeGraph(mode = "sri", data = .x$sri, weighted = T))
+
+# Make plots
+plot(testWeekGraphs$flight, vertex.size = 15, edge.width = 20*E(testWeekFlight_g)$weight, vertex.label = NA, vertex.color = "lightblue", main = "co-flight")
+plot(testWeekGraphs$feeding, vertex.size = 15, edge.width = 20*E(testWeekFeeding_g)$weight, vertex.label = NA,
+     vertex.color = "orange", main = "co-feeding")
+plot(testWeekGraphs$roostD, vertex.size = 15, edge.width = E(testWeekRoostD_g)$weight, vertex.label = NA, vertex.color = "firebrick3", main = "co-roosting (distance)")
+plot(testWeekGraphs$roostP, vertex.size = 15, edge.width = E(testWeekRoostP_g)$weight, vertex.label = NA,
+     vertex.color = "firebrick3", main = "co-roosting (shared polygons)")
+
+# PERMUTATIONS
+nperm <- 10
+
+## PERMUTATION 1: Random shuffle
+# shuffled <- map(1:nperm, ~p_randomDays(dataset = testWeek, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"), .progress = T)
+# save(shuffled, file = "data/shuffled.Rda")
+# shuffledRoosts <- map(shuffled, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
+# save(shuffledRoosts, file = "data/shuffledRoosts.Rda")
+# shuffledNetworks <- map(shuffled, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons), .progress = T)
+# save(shuffledNetworks, file = "data/shuffledNetworks.Rda")
+load("data/shuffled.Rda")
+load("data/shuffledRoosts.Rda")
+load("data/shuffledNetworks.Rda")
+shuffledGraphs <- map(shuffledNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
+
+## PERMUTATION 2: Shift
+# shifted <- map(1:nperm, ~p_shift(dataset = testWeek, shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
+# save(shifted, file = "data/shifted.Rda")
+# shiftedRoosts <- map(shifted, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
+# save(shiftedRoosts, file = "data/shiftedRoosts.Rda")
+# shiftedNetworks <- map(shifted, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons), .progress = T)
+# save(shiftedNetworks, file = "data/shiftedNetworks.Rda")
+load("data/shifted.Rda")
+load("data/shiftedRoosts.Rda")
+load("data/shiftedNetworks.Rda")
+shiftedGraphs <- map(shiftedNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
+
+## PERMUTATION 3: Conveyor belt
+# conveyor <- map(1:nperm, ~p_conveyor(dataset = testWeek, mode = "global", shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
+# save(conveyor, file = "data/conveyor.Rda")
+#conveyorRoosts <- map(conveyor, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
+#save(conveyorRoosts, file = "data/conveyorRoosts.Rda")
+# conveyorNetworks <- map(conveyor, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons), .progress = T)
+# save(conveyorNetworks, file = "data/conveyorNetworks.Rda")
+load("data/conveyor.Rda")
+load("data/conveyorRoosts.Rda")
+load("data/conveyorNetworks.Rda")
+conveyorGraphs <- map(conveyorNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Clearly I need help with igraph. But in the meantime, let's do some permutations!
 # To make this tractable, I'm just going to deal with one month of data.
 map(months, dim)
 testMonth <- months[[10]] # this one has a lot of rows.
-testMonthSimple <- testMonth %>%
-  select(trackId, location_lat, location_long, dateOnly, timeOnly, season, year, seasonUnique, month, geometry)
 
 ## TYPE 1: Random day permutation. For each individual, I'll restrict it to only the days when it was actually observed, preserving real gaps. But I'll shuffle day tracks within it. 
-randomDays_permuted <- testMonthSimple %>%
-  group_by(trackId) %>%
-  group_split(.keep = T) %>%
-  map_dfr(~{
-    days <- unique(.x$dateOnly)
-    daysShuffled <- sample(days, size = length(days), replace = F)
-    daysDF <- bind_cols("dateOnly" = days, "newDate" = daysShuffled)
-    .x <- .x %>%
-      left_join(daysDF, by = "dateOnly") %>%
-      mutate(timestamp = lubridate::ymd_hms(paste(newDate, timeOnly)))
-    return(.x)
-  })
-# Of course, will have to do this multiple times. Probably need to create some permutation functions. Even add them to the package?
+randomDays_permuted <- p_randomDays(dataset = testMonth, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly")
 
 ## Type 2: Shift tracks back or forwards. For each individual, randomly choose number of days to shift, between -10 and 10, with uniform probability. Then create the new date column based on that.
-shiftedDays_permuted <- testMonthSimple %>%
-  group_by(trackId) %>%
-  group_split(.keep = T) %>%
-  map_dfr(~{
-    shift <- sample(-10:10, size = 1)
-    .x <- .x %>%
-      mutate(newDate = dateOnly + shift,
-             timestamp = lubridate::ymd_hms(paste(newDate, timeOnly)))
-    return(.x)
-  })
+shiftedDays_permuted <- p_shift(dataset = testMonth, shiftMax = 10, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly")
+
+## Type 3: Conveyor belt. Shift tracks backwards or forwards and loop around if they fall off the edges of the date period. For each individual, randomly choose number of days to shift, where the shift is limited to the number of days in the date range. From -10 to 10.
+shiftedDays_conveyor <- p_conveyor(dataset = testMonth, mode = "global", shiftMax = 10, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly")
 
 # Let's visualize the shifted vs. normal days
-testMonthSimple %>%
+testMonth %>%
   sf::st_drop_geometry() %>%
   select(trackId, dateOnly) %>%
   distinct()%>%
@@ -146,9 +210,9 @@ testMonthSimple %>%
 
 shiftedDays_permuted %>%
   sf::st_drop_geometry() %>%
-  select(trackId, newDate) %>%
+  select(trackId, dateOnly) %>%
   distinct()%>%
-  ggplot(aes(x = trackId, y = newDate))+
+  ggplot(aes(x = trackId, y = dateOnly))+
   geom_point(size = 1.5, col = "darkred")+
   geom_line(linewidth = 0.7)+
   coord_flip()+
@@ -161,10 +225,10 @@ shiftedDays_permuted %>%
 
 shiftedDays_permuted_long <- shiftedDays_permuted %>%
   sf::st_drop_geometry() %>%
-  pivot_longer(cols = c("dateOnly", "newDate"), names_to = "dateType", values_to = "date") %>%
-  mutate(dateType = case_when(dateType == "dateOnly" ~ "Original",
-                          dateType == "newDate" ~ "Shifted",
-                          TRUE ~ NA_character_))
+  pivot_longer(cols = c("dateOnly", "oldDate"), names_to = "dateType", values_to = "date") %>%
+  mutate(dateType = case_when(dateType == "oldDate" ~ "Original",
+                              dateType == "dateOnly" ~ "Shifted",
+                              TRUE ~ NA_character_))
 
 original_and_shifted_10Days <- shiftedDays_permuted_long %>%
   select(trackId, dateType, date) %>%
@@ -183,8 +247,49 @@ original_and_shifted_10Days <- shiftedDays_permuted_long %>%
   theme(legend.position = "none")+
   scale_color_manual(values = c("black", "firebrick4"))
 ggsave(plot = original_and_shifted_10Days, filename = "fig/original_and_shifted_10Days.png",
-      width = 6, height = 9)
+       width = 6, height = 9)
 
+# Put all the datasets together
+datasets <- list("shuffled" = randomDays_permuted, 
+                 "shifted" = shiftedDays_permuted,
+                 "orig" = testMonth)
+# Now I can actually make networks for this data. Going to start with just regular and shifted.
+# flight
+# flight <- map(datasets, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, return = "sri"))
+# save(flight, file = "data/flight.Rda")
+load("data/flight.Rda")
 
+# feeding
+# feeding <- map(datasets, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, return = "sri"))
+# save(feeding, file = "data/feeding.Rda")
+load("data/feeding.Rda")
 
+# get roosts # XXX this may be a problem--should look at how Marta's algorithm responds to teleportation.
+# roosts <- map(datasets, ~vultureUtils::get_roosts_df(df = .x, id = "trackId"))
+# save(roosts, file = "data/roosts.Rda")
+load("data/roosts.Rda")
 
+# roost (distance)
+# roostsD <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "distance", distThreshold = 500, return = "sri"))
+# save(roostsD, file = "data/roostsD.Rda")
+load("data/roostsD.Rda")
+
+# roost (polygon)
+# roostsP <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "sri"))
+# save(roostsP, file = "data/roostsP.Rda")
+load("data/roostsP.Rda")
+
+# Make graphs
+flight_g <- map(flight, ~makeGraph(mode = "sri", data = .x, weighted = T))
+feeding_g <- map(feeding, ~makeGraph(mode = "sri", data = .x, weighted = T))
+roostD_g <- map(roostsD, ~makeGraph(mode = "sri", data = .x, weighted = T))
+roostP_g <- map(roostsP, ~makeGraph(mode = "sri", data = .x, weighted = T))
+
+# Plot
+iwalk(flight_g, ~plot(.x, vertex.size = 10, edge.width = 20*E(.x)$weight, edge.color = "black", main = paste("flight", .y)))
+
+iwalk(feeding_g, ~plot(.x, vertex.size = 10, edge.width = 20*E(.x)$weight, edge.color = "black", main = paste("feeding", .y)))
+
+iwalk(roostD_g, ~plot(.x, vertex.size = 10, edge.width = 10*E(.x)$weight, edge.color = "black", main = paste("roostD", .y)))
+
+iwalk(roostP_g, ~plot(.x, vertex.size = 10, edge.width = 10*E(.x)$weight, edge.color = "black", main = paste("roostP", .y)))
