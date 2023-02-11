@@ -112,19 +112,19 @@ getNetworks <- function(dataset, roosts, roostPolygons){
   outList <- list("flight" = testWeekFlight, "feeding" = testWeekFeeding, "roostD" = testWeekRoostD, "roostP" = testWeekRoostP)
 }
 
-testWeekNetworks <- getNetworks(dataset = testWeek, roosts = testWeekRoosts, roostPolygons = roostPolygons)
-save(testWeekNetworks, file = "data/testWeekNetworks.Rda")
+#testWeekNetworks <- getNetworks(dataset = testWeek, roosts = testWeekRoosts, roostPolygons = roostPolygons)
+#save(testWeekNetworks, file = "data/testWeekNetworks.Rda")
+load("data/testWeekNetworks.Rda")
 
 # Make graphs
 testWeekGraphs <- map(testWeekNetworks, ~makeGraph(mode = "sri", data = .x$sri, weighted = T))
+testWeekGraphs0 <- map(testWeekGraphs, ~delete.edges(.x, E(.x)[E(.x)$weight <= 0|is.na(E(.x)$weight)])) # remove 0-weight edges for plotting/calcs
 
 # Make plots
-plot(testWeekGraphs$flight, vertex.size = 15, edge.width = 20*E(testWeekFlight_g)$weight, vertex.label = NA, vertex.color = "lightblue", main = "co-flight")
-plot(testWeekGraphs$feeding, vertex.size = 15, edge.width = 20*E(testWeekFeeding_g)$weight, vertex.label = NA,
-     vertex.color = "orange", main = "co-feeding")
-plot(testWeekGraphs$roostD, vertex.size = 15, edge.width = E(testWeekRoostD_g)$weight, vertex.label = NA, vertex.color = "firebrick3", main = "co-roosting (distance)")
-plot(testWeekGraphs$roostP, vertex.size = 15, edge.width = E(testWeekRoostP_g)$weight, vertex.label = NA,
-     vertex.color = "firebrick3", main = "co-roosting (shared polygons)")
+plot(testWeekGraphs0$flight, vertex.size = 15, edge.width = 20*E(testWeekGraphs0$flight)$weight, vertex.color = "lightblue", main = "co-flight", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.label.font = 2, vertex.frame.color = "lightblue", vertex.label.family = "Arial")
+plot(testWeekGraphs0$feeding, vertex.size = 15, edge.width = 20*E(testWeekGraphs0$feeding)$weight, vertex.color = "orange", main = "co-feeding", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.label.font = 2, vertex.frame.color = "orange", vertex.label.family = "Arial")
+plot(testWeekGraphs0$roostD, vertex.size = 10, edge.width = E(testWeekGraphs0$roostD)$weight, vertex.color = "firebrick2", main = "co-roosting (distance)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
+plot(testWeekGraphs0$roostP, vertex.size = 10, edge.width = E(testWeekGraphs0$roostP)$weight, vertex.color = "firebrick2", main = "co-roosting (shared polygons)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
 
 # PERMUTATIONS
 nperm <- 10
@@ -165,131 +165,240 @@ load("data/conveyorRoosts.Rda")
 load("data/conveyorNetworks.Rda")
 conveyorGraphs <- map(conveyorNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
 
+# CALCULATE METRICS: FLIGHT
+flight_real <- testWeekNetworks$flight$sri %>% mutate(type = "observed")
+flight_shuffled <- imap_dfr(shuffledNetworks, ~.x[["flight"]]$sri %>% mutate(rep = .y)) %>% mutate(type = "shuffled")
+flight_shifted <- imap_dfr(shiftedNetworks, ~.x[["flight"]]$sri %>% mutate(rep = .y)) %>% mutate(type = "shifted")
+flight_conveyor <- imap_dfr(conveyorNetworks, ~.x[["flight"]]$sri %>% mutate(rep = .y)) %>% mutate(type = "conveyor")
 
+flightSRI <- bind_rows(flight_real, flight_shuffled, flight_shifted, flight_conveyor) %>%
+  mutate(logSRI = log(sri))
 
-
-
-
-
-
-
-
-
-
-
-
-# Clearly I need help with igraph. But in the meantime, let's do some permutations!
-# To make this tractable, I'm just going to deal with one month of data.
-map(months, dim)
-testMonth <- months[[10]] # this one has a lot of rows.
-
-## TYPE 1: Random day permutation. For each individual, I'll restrict it to only the days when it was actually observed, preserving real gaps. But I'll shuffle day tracks within it. 
-randomDays_permuted <- p_randomDays(dataset = testMonth, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly")
-
-## Type 2: Shift tracks back or forwards. For each individual, randomly choose number of days to shift, between -10 and 10, with uniform probability. Then create the new date column based on that.
-shiftedDays_permuted <- p_shift(dataset = testMonth, shiftMax = 10, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly")
-
-## Type 3: Conveyor belt. Shift tracks backwards or forwards and loop around if they fall off the edges of the date period. For each individual, randomly choose number of days to shift, where the shift is limited to the number of days in the date range. From -10 to 10.
-shiftedDays_conveyor <- p_conveyor(dataset = testMonth, mode = "global", shiftMax = 10, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly")
-
-# Let's visualize the shifted vs. normal days
-testMonth %>%
-  sf::st_drop_geometry() %>%
-  select(trackId, dateOnly) %>%
-  distinct()%>%
-  ggplot(aes(x = trackId, y = dateOnly))+
-  geom_point(size = 1.5)+
-  geom_line(linewidth = 0.7)+
-  coord_flip()+
+## SRI distributions
+flightSRI %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = sri, group = rep))+
+  geom_density(aes(col = type), linewidth = 1)+
+  facet_wrap(~type)+
   theme_classic()+
-  ggtitle("Original data")+
-  theme(axis.text.y = element_blank(),
-        axis.ticks.y = element_blank())+
-  xlab("Individual")+
-  ylab("Actual date (2022)")
-
-shiftedDays_permuted %>%
-  sf::st_drop_geometry() %>%
-  select(trackId, dateOnly) %>%
-  distinct()%>%
-  ggplot(aes(x = trackId, y = dateOnly))+
-  geom_point(size = 1.5, col = "darkred")+
-  geom_line(linewidth = 0.7)+
-  coord_flip()+
-  theme_classic()+
-  ggtitle("Shifted data")+
-  theme(axis.text.y = element_blank(),
-        axis.ticks.y = element_blank())+
-  xlab("Individual")+
-  ylab("Shifted date (2022)")
-
-shiftedDays_permuted_long <- shiftedDays_permuted %>%
-  sf::st_drop_geometry() %>%
-  pivot_longer(cols = c("dateOnly", "oldDate"), names_to = "dateType", values_to = "date") %>%
-  mutate(dateType = case_when(dateType == "oldDate" ~ "Original",
-                              dateType == "dateOnly" ~ "Shifted",
-                              TRUE ~ NA_character_))
-
-original_and_shifted_10Days <- shiftedDays_permuted_long %>%
-  select(trackId, dateType, date) %>%
-  distinct() %>%
-  ggplot(aes(x = trackId, y = date))+
-  geom_line(linewidth = 0.7)+
-  geom_point(size = 1.5, aes(col = dateType))+
-  theme_classic()+
-  ggtitle("Original and shifted data")+
-  theme(axis.text.y = element_blank(),
-        axis.ticks.y = element_blank())+
-  xlab("Individual")+
-  ylab("Date (2022)")+
-  coord_flip()+
-  facet_wrap(~dateType, scales = "fixed")+
   theme(legend.position = "none")+
-  scale_color_manual(values = c("black", "firebrick4"))
-ggsave(plot = original_and_shifted_10Days, filename = "fig/original_and_shifted_10Days.png",
-       width = 6, height = 9)
+  ylab("Density")+
+  xlab("SRI")+
+  theme(strip.text = element_text(size = 18))
 
-# Put all the datasets together
-datasets <- list("shuffled" = randomDays_permuted, 
-                 "shifted" = shiftedDays_permuted,
-                 "orig" = testMonth)
-# Now I can actually make networks for this data. Going to start with just regular and shifted.
-# flight
-# flight <- map(datasets, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, return = "sri"))
-# save(flight, file = "data/flight.Rda")
-load("data/flight.Rda")
+flightSRI %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = logSRI, group = rep))+
+  geom_density(aes(col = type), linewidth = 1)+
+  facet_wrap(~type)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  ylab("Density")+
+  xlab("SRI (log-transformed)")+
+  theme(strip.text = element_text(size = 18))
 
-# feeding
-# feeding <- map(datasets, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, return = "sri"))
-# save(feeding, file = "data/feeding.Rda")
-load("data/feeding.Rda")
+flightSRI %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = type, y = logSRI))+
+  geom_violin(aes(fill = type))+
+  theme_classic()+
+  theme(legend.position = "none", text = element_text(size = 16))+
+  ylab("SRI (log-transformed)")+
+  xlab("Permutation type")
 
-# get roosts # XXX this may be a problem--should look at how Marta's algorithm responds to teleportation.
-# roosts <- map(datasets, ~vultureUtils::get_roosts_df(df = .x, id = "trackId"))
-# save(roosts, file = "data/roosts.Rda")
-load("data/roosts.Rda")
+## Strength distributions
+str_flight_real <- strength(testWeekGraphs0$flight) %>% enframe(., name = "trackId", value = "strength") %>% mutate(type = "observed")
+str_flight_shuffled <- imap_dfr(shuffledGraphs, ~{
+  g <- .x[["flight"]]
+  g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
+  df <- enframe(strength(g), name = "trackId", value = "strength") %>% mutate(type = "shuffled", rep = .y)
+})
+str_flight_shifted <- imap_dfr(shiftedGraphs, ~{
+  g <- .x[["flight"]]
+  g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
+  df <- enframe(strength(g), name = "trackId", value = "strength") %>% mutate(type = "shifted", rep = .y)
+})
 
-# roost (distance)
-# roostsD <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "distance", distThreshold = 500, return = "sri"))
-# save(roostsD, file = "data/roostsD.Rda")
-load("data/roostsD.Rda")
+str_flight_conveyor <- imap_dfr(conveyorGraphs, ~{
+  g <- .x[["flight"]]
+  g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
+  df <- enframe(strength(g), name = "trackId", value = "strength") %>% mutate(type = "conveyor", rep = .y)
+})
 
-# roost (polygon)
-# roostsP <- map(roosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "sri"))
-# save(roostsP, file = "data/roostsP.Rda")
-load("data/roostsP.Rda")
+flightStrength <- bind_rows(str_flight_real, str_flight_shuffled, str_flight_shifted, str_flight_conveyor)
 
-# Make graphs
-flight_g <- map(flight, ~makeGraph(mode = "sri", data = .x, weighted = T))
-feeding_g <- map(feeding, ~makeGraph(mode = "sri", data = .x, weighted = T))
-roostD_g <- map(roostsD, ~makeGraph(mode = "sri", data = .x, weighted = T))
-roostP_g <- map(roostsP, ~makeGraph(mode = "sri", data = .x, weighted = T))
+### plot of strength distributions
+flightStrength %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = strength, group = rep))+
+  geom_density(aes(col = type), lwd = 1)+
+  facet_wrap(~type)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  theme(strip.text = element_text(size = 18))+
+  theme(text = element_text(size = 16))+
+  ylab("Density")+
+  xlab("Strength")
 
-# Plot
-iwalk(flight_g, ~plot(.x, vertex.size = 10, edge.width = 20*E(.x)$weight, edge.color = "black", main = paste("flight", .y)))
+flightStrength %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = log(strength), group = rep))+
+  geom_density(aes(col = type), lwd = 1)+
+  facet_wrap(~type)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  theme(strip.text = element_text(size = 18))+
+  theme(text = element_text(size = 16))+
+  ylab("Density")+
+  xlab("Strength (log-transformed)")
 
-iwalk(feeding_g, ~plot(.x, vertex.size = 10, edge.width = 20*E(.x)$weight, edge.color = "black", main = paste("feeding", .y)))
+flightStrengthWide <- flightStrength %>%
+  filter(type != "observed") %>%
+  left_join(str_flight_real %>% select(-type) %>% rename("observedStrength" = strength), by = "trackId")
 
-iwalk(roostD_g, ~plot(.x, vertex.size = 10, edge.width = 10*E(.x)$weight, edge.color = "black", main = paste("roostD", .y)))
 
-iwalk(roostP_g, ~plot(.x, vertex.size = 10, edge.width = 10*E(.x)$weight, edge.color = "black", main = paste("roostP", .y)))
+### individuals' strengths under different permutations
+flightStrengthWide_nonzero <- flightStrengthWide %>%
+  filter(observedStrength > 0)
+indOrder <- flightStrengthWide_nonzero %>%
+  arrange(-observedStrength) %>%
+  pull(trackId) %>%
+  unique()
+flightStrengthWide_nonzero <- flightStrengthWide_nonzero %>%
+  mutate(trackId = factor(trackId, levels = indOrder))
+
+flightStrengthWide_nonzero %>%
+  ggplot(aes(x = trackId, y = strength, col = type))+
+  geom_boxplot(outlier.size = 1, aes(fill = type))+
+  geom_point(aes(x = trackId, y = observedStrength), color = "black")+
+  theme_classic()+
+  facet_wrap(~type)+
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        strip.text = element_text(size = 18),
+        axis.ticks.x = element_blank())+
+  xlab("Individual")+
+  ylab("Strength")
+
+flightStrengthWide_nonzero %>%
+  ggplot(aes(x = observedStrength, y = strength, col = type))+
+  geom_point(size = 3, alpha = 0.7)+
+  geom_smooth(method = "lm")+
+  theme_classic()+
+  ylab("Strength (permuted)")+
+  xlab("Strength (observed)")+
+  scale_color_discrete(name = "Permutation")+
+  geom_abline(slope = 1, intercept = 0, col = "black", lty = 2)+
+  theme(text = element_text(size = 16))
+
+
+## Degree distributions
+deg_flight_real <- degree(testWeekGraphs0$flight) %>% enframe(., name = "trackId", value = "degree") %>% mutate(type = "observed")
+deg_flight_shuffled <- imap_dfr(shuffledGraphs, ~{
+  g <- .x[["flight"]]
+  g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
+  df <- enframe(degree(g), name = "trackId", value = "degree") %>% mutate(type = "shuffled", rep = .y)
+})
+deg_flight_shifted <- imap_dfr(shiftedGraphs, ~{
+  g <- .x[["flight"]]
+  g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
+  df <- enframe(degree(g), name = "trackId", value = "degree") %>% mutate(type = "shifted", rep = .y)
+})
+
+deg_flight_conveyor <- imap_dfr(conveyorGraphs, ~{
+  g <- .x[["flight"]]
+  g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
+  df <- enframe(degree(g), name = "trackId", value = "degree") %>% mutate(type = "conveyor", rep = .y)
+})
+
+flightDegree <- bind_rows(deg_flight_real, deg_flight_shuffled, deg_flight_shifted, deg_flight_conveyor)
+flightDegreeWide <- flightDegree %>%
+  filter(type != "observed") %>%
+  left_join(deg_flight_real %>% select(-type) %>% rename("observedDegree" = degree), by = "trackId")
+
+### plot of degree distributions
+flightDegree %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = degree, group = rep))+
+  geom_density(aes(col = type), lwd = 1)+
+  facet_wrap(~type)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  theme(strip.text = element_text(size = 18))+
+  theme(text = element_text(size = 16))+
+  ylab("Density")+
+  xlab("Degree")
+
+flightDegree %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = log(degree), group = rep))+
+  geom_density(aes(col = type), lwd = 1)+
+  facet_wrap(~type)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  theme(strip.text = element_text(size = 18))+
+  theme(text = element_text(size = 16))+
+  ylab("Density")+
+  xlab("Degree (log-transformed)")
+
+### individuals' degrees under different permutations
+flightDegreeWide_nonzero <- flightDegreeWide %>%
+  filter(observedDegree > 0)
+indOrder <- flightDegreeWide_nonzero %>%
+  arrange(-observedDegree) %>%
+  pull(trackId) %>%
+  unique()
+flightDegreeWide_nonzero <- flightDegreeWide_nonzero %>%
+  mutate(trackId = factor(trackId, levels = indOrder))
+
+flightDegreeWide_nonzero %>%
+  ggplot(aes(x = trackId, y = degree, col = type))+
+  geom_boxplot(outlier.size = 1, aes(fill = type))+
+  geom_point(aes(x = trackId, y = observedDegree), color = "black")+
+  theme_classic()+
+  facet_wrap(~type)+
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        strip.text = element_text(size = 18),
+        axis.ticks.x = element_blank())+
+  xlab("Individual")+
+  ylab("Degree")
+
+flightDegreeWide_nonzero %>%
+  ggplot(aes(x = observedDegree, y = degree, col = type))+
+  #geom_point(size = 3, alpha = 0.7)+
+  geom_smooth(method = "lm")+
+  theme_classic()+
+  ylab("Degree (permuted)")+
+  xlab("Degree (observed)")+
+  scale_color_discrete(name = "Permutation")+
+  geom_abline(slope = 1, intercept = 0, col = "black", lty = 2)+
+  theme(text = element_text(size = 16))
+
+### Strength by degree: distinguishes how individuals spread out their connections. E.g. A interacts 3 times with B, vs. A interacts once each with B, C, and D.
+
+head(flightDegreeWide)
+head(flightStrengthWide)
+#XXX come back to this: need multiple reps
+
+sbd <- left_join(flightDegreeWide, flightStrengthWide, by = c("trackId", "type", "rep")) %>%
+  mutate(observedSBD = observedStrength/observedDegree,
+         SBD = strength/degree)
+
+sbd %>%
+  select(trackId, type, rep, observedSBD, SBD) %>%
+  pivot_longer(cols = c("observedSBD", "SBD"), names_to = "type2", values_to = "sbd") %>%
+  mutate(type = case_when(type2 == "observedSBD" ~ "observed",
+                          TRUE ~ type)) %>%
+  select(trackId, type, rep, sbd) %>%
+  distinct() %>%
+  mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
+  ggplot(aes(x = sbd, col = type))+
+  geom_density(size = 1.5)+
+  theme_classic()+
+  ylab("Strength-by-degree (permuted)")+
+  xlab("Strength-by-degree (observed)")+
+  theme(legend.position = "none",
+        text = element_text(size = 16))+
+  facet_wrap(~type)
+
