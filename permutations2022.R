@@ -127,7 +127,7 @@ plot(testWeekGraphs0$roostD, vertex.size = 10, edge.width = E(testWeekGraphs0$ro
 plot(testWeekGraphs0$roostP, vertex.size = 10, edge.width = E(testWeekGraphs0$roostP)$weight, vertex.color = "firebrick2", main = "co-roosting (shared polygons)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
 
 # PERMUTATIONS
-nperm <- 10
+nperm <- 100
 
 ## PERMUTATION 1: Random shuffle
 # shuffled <- map(1:nperm, ~p_randomDays(dataset = testWeek, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"), .progress = T)
@@ -156,8 +156,8 @@ shiftedGraphs <- map(shiftedNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .
 ## PERMUTATION 3: Conveyor belt
 # conveyor <- map(1:nperm, ~p_conveyor(dataset = testWeek, mode = "global", shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
 # save(conveyor, file = "data/conveyor.Rda")
-#conveyorRoosts <- map(conveyor, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
-#save(conveyorRoosts, file = "data/conveyorRoosts.Rda")
+# conveyorRoosts <- map(conveyor, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
+# save(conveyorRoosts, file = "data/conveyorRoosts.Rda")
 # conveyorNetworks <- map(conveyor, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons), .progress = T)
 # save(conveyorNetworks, file = "data/conveyorNetworks.Rda")
 load("data/conveyor.Rda")
@@ -178,7 +178,7 @@ flightSRI <- bind_rows(flight_real, flight_shuffled, flight_shifted, flight_conv
 flightSRI %>%
   mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
   ggplot(aes(x = sri, group = rep))+
-  geom_density(aes(col = type), linewidth = 1)+
+  geom_density(aes(col = type), alpha = 0.5)+
   facet_wrap(~type)+
   theme_classic()+
   theme(legend.position = "none")+
@@ -189,7 +189,7 @@ flightSRI %>%
 flightSRI %>%
   mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
   ggplot(aes(x = logSRI, group = rep))+
-  geom_density(aes(col = type), linewidth = 1)+
+  geom_density(aes(col = type), lwd = 0.2)+
   facet_wrap(~type)+
   theme_classic()+
   theme(legend.position = "none")+
@@ -231,7 +231,7 @@ flightStrength <- bind_rows(str_flight_real, str_flight_shuffled, str_flight_shi
 flightStrength %>%
   mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
   ggplot(aes(x = strength, group = rep))+
-  geom_density(aes(col = type), lwd = 1)+
+  geom_density(aes(col = type), lwd = 0.2)+
   facet_wrap(~type)+
   theme_classic()+
   theme(legend.position = "none")+
@@ -243,7 +243,7 @@ flightStrength %>%
 flightStrength %>%
   mutate(type = factor(type, levels = c("observed", "shuffled", "shifted", "conveyor"))) %>%
   ggplot(aes(x = log(strength), group = rep))+
-  geom_density(aes(col = type), lwd = 1)+
+  geom_density(aes(col = type), lwd = 0.2)+
   facet_wrap(~type)+
   theme_classic()+
   theme(legend.position = "none")+
