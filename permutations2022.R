@@ -514,30 +514,48 @@ flightSBDMeans <- sbd %>%
             maxSBD = max(sbd, na.rm = T))
 
 ## Mean Density (raw) ------------------------------------------------------
+obsMn <- flightSBDMeans %>% filter(type == "observed") %>% pull(mnSBD)
+annot <- flightSBDMeans %>%
+  filter(type != "observed") %>%
+  group_by(type) %>%
+  mutate(resid = mnSBD - obsMn) %>%
+  summarize(propAbove = sum(resid > 0)/n())
+
 flightSBDMeans %>%
   filter(type != "observed") %>%
   ggplot(aes(x = mnSBD))+
   geom_density(aes(col = type, fill = type), lwd = 1.5, alpha = 0.3)+
-  geom_vline(aes(xintercept = flightSBDMeans$mnSBD[flightSBDMeans$type == "observed"]), lwd = 1, lty = 2)+
+  geom_vline(aes(xintercept = obsMn), lwd = 1, lty = 2)+
   scale_color_manual(values = c(colshuf, colshif, colconv))+
   scale_fill_manual(values = c(colshuf, colshif, colconv))+
   theme_classic()+
   ylab("Density")+
-  xlab("Mean SBD") 
+  xlab("Mean SBD")+
+  geom_text(data = annot, aes(x = 0.45, y = c(6.5, 6, 5.5), col = type, label = paste("p = ", propAbove)), size = 5, fontface = "bold")
 
-# StD Density (raw) -------------------------------------------------------
+## StD Density (raw) -------------------------------------------------------
+obsSD <- flightSBDMeans %>% filter(type == "observed") %>% pull(sdSBD)
+annot <- flightSBDMeans %>%
+  filter(type != "observed") %>%
+  group_by(type) %>%
+  mutate(resid = sdSBD - obsSD) %>%
+  summarize(propAbove = sum(resid > 0)/n(),
+            propBelow = sum(resid < 0)/n())
+
 flightSBDMeans %>%
   filter(type != "observed") %>%
   ggplot(aes(x = sdSBD))+
   geom_density(aes(col = type, fill = type), lwd = 1.5, alpha = 0.3)+
-  geom_vline(aes(xintercept = flightSBDMeans$sdSBD[flightSBDMeans$type == "observed"]), lwd = 1, lty = 2)+
+  geom_vline(aes(xintercept = obsSD), lwd = 1, lty = 2)+
   scale_color_manual(values = c(colshuf, colshif, colconv))+
   scale_fill_manual(values = c(colshuf, colshif, colconv))+
   theme_classic()+
   ylab("Density")+
-  xlab("Std Deviation of SBD")
+  xlab("Std Deviation of SBD")+
+  geom_text(data = annot, aes(x = 0.4, y = c(6.5, 6, 5.5), col = type, 
+                              label = paste("p = ", propBelow)), size = 4, fontface = "bold")
 
-# Ind boxplots (raw) ------------------------------------------------------
+## Ind boxplots (raw) ------------------------------------------------------
 sbd_flight_real <- sbd %>%
   filter(type == "observed") %>%
   select(trackId, sbd)
