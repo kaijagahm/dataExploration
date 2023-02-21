@@ -11,7 +11,7 @@ library(sf)
 library(ggraph)
 library(tidygraph)
 library(wesanderson)
-source("funs_datastreamPermutations.R")
+source("permutations/funs_datastreamPermutations.R")
 
 # load("data/datAnnotCleaned.Rda")
 roostPolygons <- sf::st_read("data/roosts25_cutOffRegion.kml")
@@ -101,39 +101,39 @@ load("data/monthRoosts.Rda")
 # flightLayout <- layout_with_fr(graph = g_flight[[1]])
 # plot(test, vertex.size = 10, edge.width = E(test)$weight, edge.color = "black", vertices = allVerts)
 
-# Test week: observed networks --------------------------------------------
+# Test month: observed networks --------------------------------------------
 
-# Test data for permutations--let's use just one week of data.
-testWeek <- months[[1]] %>%
-  filter(lubridate::ymd(dateOnly) >= lubridate::ymd("2022-01-01") & lubridate::ymd(dateOnly) <= lubridate::ymd("2022-01-07"))
+# Test data for permutations--let's use just one month of data.
+testMonth <- months[[1]] %>%
+  filter(lubridate::ymd(dateOnly) >= lubridate::ymd("2022-01-01") & lubridate::ymd(dateOnly) <= lubridate::ymd("2022-01-31"))
 
-# Get roosts for this test week
-#testWeekRoosts <- vultureUtils::get_roosts_df(df = testWeek, id = "trackId")
-#save(testWeekRoosts, file = "data/testWeekRoosts.Rda")
-load("data/testWeekRoosts.Rda")
+# Get roosts for this test month
+#testMonthRoosts <- vultureUtils::get_roosts_df(df = testMonth, id = "trackId")
+#save(testMonthRoosts, file = "data/testMonthRoosts.Rda")
+load("data/testMonthRoosts.Rda")
 
 # Get all four types of network
 getNetworks <- function(dataset, roosts, roostPolygons){
-  testWeekFlight <- getFlightEdges(dataset, roostPolygons, distThreshold = 1000, return = "both")
-  testWeekFeeding <- getFeedingEdges(dataset, roostPolygons, distThreshold = 50, return = "both")
-  testWeekRoostD <- getRoostEdges(dataset = roosts, mode = "distance", idCol = "trackId", return = "both", distThreshold = 500)
-  testWeekRoostP <- getRoostEdges(dataset = roosts, mode = "polygon", roostPolygons = roostPolygons, idCol = "trackId", return = "both")
-  outList <- list("flight" = testWeekFlight, "feeding" = testWeekFeeding, "roostD" = testWeekRoostD, "roostP" = testWeekRoostP)
+  testMonthFlight <- getFlightEdges(dataset, roostPolygons, distThreshold = 1000, return = "both")
+  testMonthFeeding <- getFeedingEdges(dataset, roostPolygons, distThreshold = 50, return = "both")
+  testMonthRoostD <- getRoostEdges(dataset = roosts, mode = "distance", idCol = "trackId", return = "both", distThreshold = 500)
+  testMonthRoostP <- getRoostEdges(dataset = roosts, mode = "polygon", roostPolygons = roostPolygons, idCol = "trackId", return = "both")
+  outList <- list("flight" = testMonthFlight, "feeding" = testMonthFeeding, "roostD" = testMonthRoostD, "roostP" = testMonthRoostP)
 }
 
-# testWeekNetworks <- getNetworks(dataset = testWeek, roosts = testWeekRoosts, roostPolygons = roostPolygons)
-# save(testWeekNetworks, file = "data/testWeekNetworks.Rda")
-load("data/testWeekNetworks.Rda")
+# testMonthNetworks <- getNetworks(dataset = testMonth, roosts = testMonthRoosts, roostPolygons = roostPolygons)
+# save(testMonthNetworks, file = "data/testMonthNetworks.Rda")
+load("data/testMonthNetworks.Rda")
 
 # Make graphs
-testWeekGraphs <- map(testWeekNetworks, ~makeGraph(mode = "sri", data = .x$sri, weighted = T))
-testWeekGraphs0 <- map(testWeekGraphs, ~delete.edges(.x, E(.x)[E(.x)$weight <= 0|is.na(E(.x)$weight)])) # remove 0-weight edges for plotting/calcs
+testMonthGraphs <- map(testMonthNetworks, ~makeGraph(mode = "sri", data = .x$sri, weighted = T))
+testMonthGraphs0 <- map(testMonthGraphs, ~delete.edges(.x, E(.x)[E(.x)$weight <= 0|is.na(E(.x)$weight)])) # remove 0-weight edges for plotting/calcs
 
 # PLOTS: OBSERVED NETWORKS
-plot(testWeekGraphs0$flight, vertex.size = 15, edge.width = 10*E(testWeekGraphs0$flight)$weight, vertex.color = "lightblue", main = "co-flight", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.label.font = 2, vertex.frame.color = "lightblue", vertex.label.family = "Arial")
-plot(testWeekGraphs0$feeding, vertex.size = 15, edge.width = 10*E(testWeekGraphs0$feeding)$weight, vertex.color = "orange", main = "co-feeding", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.label.font = 2, vertex.frame.color = "orange", vertex.label.family = "Arial")
-plot(testWeekGraphs0$roostD, vertex.size = 10, edge.width = 5*E(testWeekGraphs0$roostD)$weight, vertex.color = "firebrick2", main = "co-roosting (distance)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
-plot(testWeekGraphs0$roostP, vertex.size = 10, edge.width = E(testWeekGraphs0$roostP)$weight, vertex.color = "firebrick2", main = "co-roosting (shared polygons)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
+plot(testMonthGraphs0$flight, vertex.size = 15, edge.width = 10*E(testMonthGraphs0$flight)$weight, vertex.color = "lightblue", main = "co-flight", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.label.font = 2, vertex.frame.color = "lightblue", vertex.label.family = "Arial")
+plot(testMonthGraphs0$feeding, vertex.size = 15, edge.width = 10*E(testMonthGraphs0$feeding)$weight, vertex.color = "orange", main = "co-feeding", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.label.font = 2, vertex.frame.color = "orange", vertex.label.family = "Arial")
+plot(testMonthGraphs0$roostD, vertex.size = 10, edge.width = 5*E(testMonthGraphs0$roostD)$weight, vertex.color = "firebrick2", main = "co-roosting (distance)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
+plot(testMonthGraphs0$roostP, vertex.size = 10, edge.width = E(testMonthGraphs0$roostP)$weight, vertex.color = "firebrick2", main = "co-roosting (shared polygons)", vertex.label.color = "black", vertex.label.cex = 0.8, vertex.frame.color = "firebrick2", vertex.label.family = "Arial")
 
 # PERMUTATIONS ------------------------------------------------------------
 nperm <- 100
@@ -143,44 +143,44 @@ colshif <- pal[4]
 colconv <- pal[3]
 
 # 1: Shuffled -------------------------------------------------------------
-# shuffled <- map(1:nperm, ~p_randomDays(dataset = testWeek, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
+# shuffled <- map(1:nperm, ~p_randomDays(dataset = testMonth, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
 # save(shuffled, file = "data/shuffled.Rda")
 # shuffledRoosts <- map(shuffled, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
 # save(shuffledRoosts, file = "data/shuffledRoosts.Rda")
 load("data/shuffled.Rda")
 load("data/shuffledRoosts.Rda")
-# shuffledNetworks <- map(shuffled, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons))
+# shuffledNetworks <- map(shuffled, ~getNetworks(dataset = .x, roosts = testMonthRoosts, roostPolygons = roostPolygons))
 # save(shuffledNetworks, file = "data/shuffledNetworks.Rda")
 load("data/shuffledNetworks.Rda")
 shuffledGraphs <- map(shuffledNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
 
 # 2: Shifted -------------------------------------------------------------
 # PERMUTATION 2: Shift
-# shifted <- map(1:nperm, ~p_shift(dataset = testWeek, shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
+# shifted <- map(1:nperm, ~p_shift(dataset = testMonth, shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
 # save(shifted, file = "data/shifted.Rda")
 # shiftedRoosts <- map(shifted, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
 # save(shiftedRoosts, file = "data/shiftedRoosts.Rda")
 load("data/shifted.Rda")
 load("data/shiftedRoosts.Rda")
-# shiftedNetworks <- map(shifted, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons))
+# shiftedNetworks <- map(shifted, ~getNetworks(dataset = .x, roosts = testMonthRoosts, roostPolygons = roostPolygons))
 # save(shiftedNetworks, file = "data/shiftedNetworks.Rda")
 load("data/shiftedNetworks.Rda")
 shiftedGraphs <- map(shiftedNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
 
 # 3: Conveyor -------------------------------------------------------------
-# conveyor <- map(1:nperm, ~p_conveyor(dataset = testWeek, mode = "global", shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
+# conveyor <- map(1:nperm, ~p_conveyor(dataset = testMonth, mode = "global", shiftMax = 5, idCol = "trackId", dateCol = "dateOnly", timeCol = "timeOnly"))
 # save(conveyor, file = "data/conveyor.Rda")
 # conveyorRoosts <- map(conveyor, ~vultureUtils::get_roosts_df(df = .x, id = "trackId", quiet = T), .progress = T)
 # save(conveyorRoosts, file = "data/conveyorRoosts.Rda")
 load("data/conveyor.Rda")
 load("data/conveyorRoosts.Rda")
-# conveyorNetworks <- map(conveyor, ~getNetworks(dataset = .x, roosts = testWeekRoosts, roostPolygons = roostPolygons))
+# conveyorNetworks <- map(conveyor, ~getNetworks(dataset = .x, roosts = testMonthRoosts, roostPolygons = roostPolygons))
 # save(conveyorNetworks, file = "data/conveyorNetworks.Rda")
 load("data/conveyorNetworks.Rda")
 conveyorGraphs <- map(conveyorNetworks, ~map(.x, ~makeGraph(mode = "sri", data = .x$sri, weighted = T)))
 
 # RESULTS: CO-FLIGHT ------------------------------------------------------
-flight_real <- testWeekNetworks$flight$sri %>% mutate(type = "observed")
+flight_real <- testMonthNetworks$flight$sri %>% mutate(type = "observed")
 flight_shuffled <- imap_dfr(shuffledNetworks, ~.x[["flight"]]$sri %>% mutate(rep = .y)) %>% mutate(type = "shuffled")
 flight_shifted <- imap_dfr(shiftedNetworks, ~.x[["flight"]]$sri %>% mutate(rep = .y)) %>% mutate(type = "shifted")
 flight_conveyor <- imap_dfr(conveyorNetworks, ~.x[["flight"]]$sri %>% mutate(rep = .y)) %>% mutate(type = "conveyor")
@@ -247,7 +247,7 @@ flightSRIMeans %>%
   xlab("Std Deviation of SRI")
 
 # Strength --------------------------------------------------------------------
-str_flight_real <- strength(testWeekGraphs0$flight) %>% enframe(., name = "trackId", value = "strength") %>% mutate(type = "observed")
+str_flight_real <- strength(testMonthGraphs0$flight) %>% enframe(., name = "trackId", value = "strength") %>% mutate(type = "observed")
 str_flight_shuffled <- imap_dfr(shuffledGraphs, ~{
   g <- .x[["flight"]]
   g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
@@ -373,7 +373,7 @@ flightStrengthWide_nonzero %>%
 
 # Degree ------------------------------------------------------------------
 
-deg_flight_real <- degree(testWeekGraphs0$flight) %>% enframe(., name = "trackId", value = "degree") %>% mutate(type = "observed")
+deg_flight_real <- degree(testMonthGraphs0$flight) %>% enframe(., name = "trackId", value = "degree") %>% mutate(type = "observed")
 deg_flight_shuffled <- imap_dfr(shuffledGraphs, ~{
   g <- .x[["flight"]]
   g <- delete.edges(g, E(g)[E(g)$weight <= 0|is.na(E(g)$weight)])
