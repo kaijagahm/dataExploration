@@ -11,29 +11,80 @@ library(wesanderson)
 library(mapview)
 library(MASS)
 library(amt) # animal movement tools, for calculating movement stats
-source("funs_datastreamPermutations.R")
+source("permutations/funs_datastreamPermutations.R")
 
 roostPolygons <- sf::st_read("data/roosts25_cutOffRegion.kml")
 
 load("data/months.Rda")
 
+# Just one week of data
 testWeek <- months[[1]] %>%
   filter(lubridate::ymd(dateOnly) >= lubridate::ymd("2022-01-01") & lubridate::ymd(dateOnly) <= lubridate::ymd("2022-01-07"))
 
 mapview(testWeek, zcol = "trackId")
 
-tracks <- testWeek %>%
-  sf::st_drop_geometry() %>%
+
+# Just southern indivs ----------------------------------------------------
+## get centroids
+centroids <- testWeek %>%
   group_by(trackId) %>%
+  summarize(geometry = st_union(geometry)) %>%
+  st_centroid()
+
+## visualize centroids
+mapview(centroids)
+hist(st_coordinates(centroids)[,2]) # plot latitudes to find a good cutoff point
+
+## filter to only southern indivs
+southernIndivs <- centroids %>%
+  filter(st_coordinates(.)[,2] < 32) %>%
+  pull(trackId)
+
+testWeekSouthern <- testWeek %>%
+  filter(trackId %in% southernIndivs)
+
+mapview(testWeekSouthern, zcol = "trackId")
+
+## get only daylight points
+times <- suncalc::getSunlightTimes(date = unique(lubridate::date(testWeekSouthern$timestamp)), lat = 31.434306, lon = 34.991889,
+                                   keep = c("sunrise", "sunset")) %>%
+  dplyr::select(date, sunrise, sunset) # XXX the coordinates I'm using here are from the centroid of Israel calculated here: https://rona.sh/centroid. This is just a placeholder until we decide on a more accurate way of doing this.
+testWeekSouthern <- testWeekSouthern %>%
+  dplyr::left_join(times, by = c("dateOnly" = "date")) %>%
+  dplyr::mutate(daytime = dplyr::case_when(timestamp > sunrise &
+                                             timestamp < sunset ~ T,
+                                           TRUE ~ F))
+testWeekSouthern %>% filter(dateOnly == "2022-01-04") %>% mapview(zcol = "trackId")
+mapview(testWeekSouthern, zcol = "trackId")
+
+## Determine a reasonable extent
+bb <- st_transform(testWeekSouthern, 32636) %>% st_bbox()
+latRange <- bb[4]-bb[2]
+lonRange <- bb[3]-bb[1]
+max(latRange, lonRange) # looks like we can use approx 120000 as our scale dimension.
+
+# get starting scale
+southernCentroids <- centroids %>%
+  filter(st_coordinates(.)[,2] < 32)
+bbCentroids <- st_transform(southernCentroids, 32636) %>% st_bbox()
+latRangeCentroids <- bbCentroids[4]-bbCentroids[2]
+lonRangeCentroids <- bbCentroids[3]-bbCentroids[1]
+max(latRangeCentroids, lonRangeCentroids) # around 101000. Let's just call it 100000. That's 83% of the original home range. So the scale factor should be 1.2. Note that in the real data, unlike in Orr's simulation, the starting points take up most of the area.
+
+tracks <- testWeekSouthern %>%
+  sf::st_drop_geometry() %>%
+  group_by(trackId, dateOnly) %>%
   filter(!duplicated(timestamp)) %>%
   ungroup() %>%
   amt::make_track(location_long, location_lat, .t = timestamp, trackId = trackId, crs = "WGS84", dateOnly = dateOnly, timestamp = timestamp) %>%
   transform_coords(., st_crs("EPSG:32636"))
 
+# XXX start here with calculating steps
 steps <- tracks %>%
-  nest(data = -"trackId") %>%
-  mutate(steps = map(data, ~steps(.x))) %>%
-  unnest(cols = steps)
+  group_by(trackId, dateOnly) %>%
+  filter(n() > 1) %>% # remove days with only one point
+  group_split(.keep = T) %>%
+  purrr::map_dfr(., ~steps(.x, keep_cols = "start"))
 
 steps %>%
   ggplot(aes(x = log(sl_), fill = factor(trackId)))+
@@ -50,21 +101,6 @@ steps %>%
   theme(legend.position = "none")+
   xlab("Turning angle")+
   ggtitle("Turning angles")
-
-
-# home ranges for each animal (https://cran.r-project.org/web/packages/amt/vignettes/p2_hr.html)
-## Select two focal animals: A75w and E17w
-a <- tracks %>% filter(trackId == "A75w")
-b <- tracks %>% filter(trackId == "E17w")
-
-## Create template rasters
-trast <- make_trast(tracks %>% filter(trackId  %in% c("A75w", "E17w")), res = 50)
-
-## Estimate home ranges
-# hr_a <- hr_kde(a, trast = trast, levels = 0.9)
-# hr_b <- hr_kde(b, trast = trast, levels = 0.9)
-# plot(hr_a, main = "Home range of A75w")
-# plot(hr_b, main = "Home range of E17w")
 
 ## Manually calculate displacement and daily travel distance
 tracksSF <- tracks %>%
