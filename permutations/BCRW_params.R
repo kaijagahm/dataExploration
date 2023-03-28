@@ -10,6 +10,7 @@ library(tidygraph)
 library(wesanderson)
 library(mapview)
 library(MASS)
+library(fitdistrplus)
 library(amt) # animal movement tools, for calculating movement stats
 source("permutations/funs_datastreamPermutations.R")
 
@@ -17,16 +18,12 @@ roostPolygons <- sf::st_read("data/roosts25_cutOffRegion.kml")
 
 load("data/months.Rda")
 
-# Just one week of data
-testWeek <- months[[1]] %>%
-  filter(lubridate::ymd(dateOnly) >= lubridate::ymd("2022-01-01") & lubridate::ymd(dateOnly) <= lubridate::ymd("2022-01-07"))
-
-mapview(testWeek, zcol = "trackId")
-
+# Just one mpnth of data
+testMonth <- months[[1]]
 
 # Just southern indivs ----------------------------------------------------
 ## get centroids
-centroids <- testWeek %>%
+centroids <- testMonth %>%
   group_by(trackId) %>%
   summarize(geometry = st_union(geometry)) %>%
   st_centroid()
@@ -40,28 +37,26 @@ southernIndivs <- centroids %>%
   filter(st_coordinates(.)[,2] < 32) %>%
   pull(trackId)
 
-testWeekSouthern <- testWeek %>%
+testMonthSouthern <- testMonth %>%
   filter(trackId %in% southernIndivs)
 
-mapview(testWeekSouthern, zcol = "trackId")
+#mapview(testMonthSouthern, zcol = "trackId")
 
 ## get only daylight points
-times <- suncalc::getSunlightTimes(date = unique(lubridate::date(testWeekSouthern$timestamp)), lat = 31.434306, lon = 34.991889,
+times <- suncalc::getSunlightTimes(date = unique(lubridate::date(testMonthSouthern$timestamp)), lat = 31.434306, lon = 34.991889,
                                    keep = c("sunrise", "sunset")) %>%
   dplyr::select(date, sunrise, sunset) # XXX the coordinates I'm using here are from the centroid of Israel calculated here: https://rona.sh/centroid. This is just a placeholder until we decide on a more accurate way of doing this.
-testWeekSouthern <- testWeekSouthern %>%
+testMonthSouthern <- testMonthSouthern %>%
   dplyr::left_join(times, by = c("dateOnly" = "date")) %>%
   dplyr::mutate(daytime = dplyr::case_when(timestamp > sunrise &
                                              timestamp < sunset ~ T,
                                            TRUE ~ F))
-testWeekSouthern %>% filter(dateOnly == "2022-01-04") %>% mapview(zcol = "trackId")
-mapview(testWeekSouthern, zcol = "trackId")
 
 ## Determine a reasonable extent
-bb <- st_transform(testWeekSouthern, 32636) %>% st_bbox()
+bb <- st_transform(testMonthSouthern, 32636) %>% st_bbox()
 latRange <- bb[4]-bb[2]
 lonRange <- bb[3]-bb[1]
-max(latRange, lonRange) # looks like we can use approx 120000 as our scale dimension.
+max(latRange, lonRange) # looks like we can use approx 120000 or 130000 as our scale dimension.
 
 # get starting scale
 southernCentroids <- centroids %>%
@@ -71,7 +66,7 @@ latRangeCentroids <- bbCentroids[4]-bbCentroids[2]
 lonRangeCentroids <- bbCentroids[3]-bbCentroids[1]
 max(latRangeCentroids, lonRangeCentroids) # around 101000. Let's just call it 100000. That's 83% of the original home range. So the scale factor should be 1.2. Note that in the real data, unlike in Orr's simulation, the starting points take up most of the area.
 
-tracks <- testWeekSouthern %>%
+tracks <- testMonthSouthern %>%
   sf::st_drop_geometry() %>%
   group_by(trackId, dateOnly) %>%
   filter(!duplicated(timestamp)) %>%
@@ -79,12 +74,19 @@ tracks <- testWeekSouthern %>%
   amt::make_track(location_long, location_lat, .t = timestamp, trackId = trackId, crs = "WGS84", dateOnly = dateOnly, timestamp = timestamp) %>%
   transform_coords(., st_crs("EPSG:32636"))
 
-# XXX start here with calculating steps
 steps <- tracks %>%
   group_by(trackId, dateOnly) %>%
   filter(n() > 1) %>% # remove days with only one point
   group_split(.keep = T) %>%
   purrr::map_dfr(., ~steps(.x, keep_cols = "start"))
+
+steps %>%
+  ggplot(aes(x = sl_, fill = factor(trackId)))+
+  geom_density(alpha = 0.4)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  xlab("Step length")+
+  ggtitle("Step lengths")
 
 steps %>%
   ggplot(aes(x = log(sl_), fill = factor(trackId)))+
@@ -113,38 +115,72 @@ dailyMovement <- tracksSF %>%
             lead = geometry[row_number()+1],
             difftime_s = difftime(timestamp, lag(timestamp), units = "secs"),
             dist_m = st_distance(geometry, lead, by_element = T),
-            speed_ms = as.numeric(dist_m)/as.numeric(difftime_s))
+            speed_ms = as.numeric(dist_m)/as.numeric(difftime_s),
+            dist_10minEquiv = speed_ms*600)
 
-dailyMovementStats <- dailyMovement %>%
+## plot 10min equivalent distances (i.e. step length corrected for time interval)
+dailyMovement %>%
+  ggplot(aes(x = dist_10minEquiv))+
+  geom_histogram()+
+  theme_classic()+
+  theme(legend.position = "none") # even after this correction, the step lengths are still *extremely* right-skewed. Need to change the step selection portion of the model to account for this. 
+
+# Let's fit a distribution. I think a gamma will be most reasonable.
+### have to divide by 10 because the distribution can't be fitted otherwise. I followed the steps shown here: https://stackoverflow.com/questions/53557022/error-code-100-fitting-exp-distribution-using-fitdist-in-r
+fitGamma <- fitdistrplus::fitdist(dailyMovement$dist_10minEquiv[!is.na(dailyMovement$dist_10minEquiv) & dailyMovement$dist_10minEquiv > 0]/10, distr = "gamma")
+plot(fitGamma, las = 1) # that's actually a pretty bad fit.
+
+fitExp <- fitdistrplus::fitdist(dailyMovement$dist_10minEquiv[!is.na(dailyMovement$dist_10minEquiv) & dailyMovement$dist_10minEquiv > 0]/10, distr = "exp")
+plot(fitExp, las = 1) # oof, that's an even worse fit.
+## Looks like I will have to draw the values from a non-parametric distribution. But for now, I'm just going to use the gamma, because we need to move forward and it doesn't have to be perfect.
+
+fitGamma # shape = 0.305, rate = 0.003
+
+# Actual data -------------------------------------------------------------
+# I want to look at some actual data next to the modeled data to see how it compares
+# Center the data so it's more directly comparable
+tracksScaled <- tracks %>%
+  mutate(x_ = x_-mean(x_),
+         y_ = y_-mean(y_))
+
+tracksScaled %>%
+  ggplot(aes(x = x_, y = y_, col = factor(trackId)))+
+  geom_path(linewidth = 0.5, aes(group = factor(trackId)))+
+  theme_minimal()+
+  theme(legend.position = "none")+
+  coord_equal()+
+  ggtitle("Real Agents") # as I suspected--highly correlated to geography, and they move together. 
+
+# How do home ranges shift over the days?
+dailyCentroids <- tracksSF %>%
   group_by(trackId, dateOnly) %>%
-  summarize(mxDisp = max(displacement, na.rm = T),
-            totalDist = sum(dist_m),
-            mnSpeed = mean(speed_ms, na.rm = T),
-            mnDistPer10min = mnSpeed*600,
-            sdSpeed = sd(speed_ms, na.rm  =T),
-            sdDistPer10min = sdSpeed*600)
+  summarize(geometry = st_union(geometry)) %>%
+  st_centroid()
 
-mean(dailyMovementStats$mnDistPer10min, na.rm  =T) # mean distance
-mean(dailyMovementStats$sdDistPer10min, na.rm = T) # sd distance
+polys <- tracksSF %>%
+  filter(trackId == "A03w") %>%
+  group_by(trackId, dateOnly) %>%
+  summarize(geometry = st_combine(geometry)) %>%
+  st_cast("POLYGON")
 
-dailyMovement %>%
-  ggplot(aes(x = totalDistance_m, y = maxDisplacement_m, col = dateOnly, group = dateOnly))+
-  geom_point()+
-  geom_smooth(method = "lm")+
-  theme_classic()
+tracksSF %>%
+  filter(trackId == "A03w") %>%
+  ggplot()+
+  geom_sf(data = polys, aes(fill = as.factor(dateOnly), col = as.factor(dateOnly)), alpha = 0.1)+
+  geom_sf(aes(col = as.factor(dateOnly)), alpha = 0.5, size = 2)+
+  theme_minimal()+
+  geom_sf(data = dailyCentroids %>% filter(trackId == "A03w"), aes(col = factor(dateOnly)), size = 5, pch = 8)+
+  theme(legend.position = "none")
 
-dailyMovement %>%
-  ggplot(aes(x = totalDistance_m, col = dateOnly, group = dateOnly))+
-  geom_density()+
-  theme_classic()
+polys %>%
+  ggplot()+
+  geom_sf(aes(fill = as.factor(dateOnly), col = as.factor(dateOnly)), alpha = 0.1)+
+  theme_minimal()+
+  theme(legend.position = "none")
 
-dailyDisplacements %>%
-  ggplot(aes(x = displacement, col = dateOnly, group = dateOnly))+
-  geom_density()+
-  theme_classic()
-
-mean(dailyDisplacements$displacement) #let's just say 8000 meters for now.
-sd(dailyDisplacements$displacement) # we'll just say 15000 meters for now
-
-
-
+dailyCentroids %>%
+  filter(trackId == "A03w") %>%
+  ggplot()+
+  geom_sf(aes(col = as.factor(dateOnly)))+
+  theme_minimal()+
+  theme(legend.position = "none")
