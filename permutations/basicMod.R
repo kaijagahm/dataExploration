@@ -1,19 +1,21 @@
 # Basic model, adapted from Spiegel et al. 2016 MEE
 # Original code by Orr Spiegel
 # Adapted by Kaija Gahm
+library(CircStats) # for `rvm`, selecting from von Mises distribution
 
 # PARAMETERS --------------------------------------------------------------
-N_indv <- 5
-Scl = 300000 # length of one edge of the simulation area (arbitrary, in meters). Full simulation area will be 30000^2 m^2. We'll assume it's centered around an origin point with coords [0,0]. Value based *loosely* on area of Israel mask.
+N_indv <- 10
+Scl = 120000 # length of one edge of the simulation area (arbitrary, in meters). Full simulation area will be 30000^2 m^2. We'll assume it's centered around an origin point with coords [0,0]. Value based *loosely* on area of Israel mask.
 N_tmStp <- 250
-EtaCRW <- 0.9 #the weight of the CRW component in the BCRW used to model the Indiv movement
-Kappa <- 3 # concentration parameter of von Mises directional distributions used for individuals' movement
-StpSize_ind <- 1000 #Mean step lengths of individuals;
-StpStd_ind <- 500 # Sandard deviations of step lengths of individuals # XXX will want to change this to sample from some sort of more complicated distribution (a gamma, as seen below)
-Social_Pecrt_rng <- 2000 #detection range (in meters) - individuals within this range will be considered in the bias point in the relevant scenario of sociable agents. Set to 0 if you want socially indifferent agents.
+EtaCRW <- 0.7 #the weight of the CRW component in the BCRW used to model the Indiv movement
+Kappa <- 5 # concentration parameter of von Mises directional distributions used for individuals' movement
+Social_range <- 2000 #detection range (in meters) - individuals within this range will be considered in the bias point in the relevant scenario of sociable agents. Set to 0 if you want socially indifferent agents.
+startScl = 8
+gammaShape = 0.308
+gammaRate = 0.0035
 
 
-rumSim <- function(N_indv = 5, Scl = 300000, N_tmStp = 250, EtaCRW = 0.7, Kappa = 3, StpSize_ind = 1000, StpStd_ind = 500){
+runSim <- function(N_indv = 5, Scl = 120000, N_tmStp = 250, EtaCRW = 0.7, Kappa = 3, Social_range = 2000, startScl = startScl, gammaShape = gammaShape, gammaRate = gammaRate){
   # INITIALIZE DATA STORAGE -------------------------------------------------
   XYind <- vector("list", length = N_indv) # to store indiv locs at each time step
   HRCenters = matrix(data = NA, nrow = N_indv, ncol = 3) # home range centers
@@ -23,8 +25,8 @@ rumSim <- function(N_indv = 5, Scl = 300000, N_tmStp = 250, EtaCRW = 0.7, Kappa 
   # STARTING LOCATIONS ------------------------------------------------------
   for(i in 1:N_indv){
     XYind[[i]] <- matrix(rep(NA, 2 * N_tmStp), ncol = 2) # empty matrices
-    XYind[[i]][1, ] <-  c(runif(n = 1, min = -Scl/3, max = Scl/3 ),#X random initial location of each individual is uniformly distributed in the range of the observed ones
-                          runif(n = 1, min = -Scl/3, max = Scl/3 ))#Y random initial location of each individual is uniformly distributed in the range of the observed ones
+    XYind[[i]][1, ] <-  c(runif(n = 1, min = -Scl/startScl, max = Scl/startScl ),#X random initial location of each individual is uniformly distributed in the range of the observed ones
+                          runif(n = 1, min = -Scl/startScl, max = Scl/startScl ))#Y random initial location of each individual is uniformly distributed in the range of the observed ones
     HRCenters[i,1:2] <- XYind[[i]][1,]
     # KG: I think it's Scl/3 so that indivs start in center and have room to move.
   }
@@ -53,7 +55,7 @@ rumSim <- function(N_indv = 5, Scl = 300000, N_tmStp = 250, EtaCRW = 0.7, Kappa 
       BiasPoint <- HRCenters[Curr_indv, 1:2] # its home range center
       
       ## If social: update bias point with social info
-      if(min(Dist, na.rm = T) < Social_Pecrt_rng){ # if another indiv is in range...
+      if(min(Dist, na.rm = T) < Social_range){ # if another indiv is in range...
         BiasPoint <- XYind[[which.min(Dist)]][Curr_tmStp, ] # set bias point to loc of nearest indiv
       }
       
@@ -69,7 +71,7 @@ rumSim <- function(N_indv = 5, Scl = 300000, N_tmStp = 250, EtaCRW = 0.7, Kappa 
       
       # TAKE NEXT STEP
       #selection of step size for this indiv in this state from the specific gamma  # XXX need to fit gamma distribution to the step lengths for real data        
-      step.len <- rgamma(1, shape = StpSize_ind^2/StpStd_ind^2, scale = StpStd_ind^2/StpSize_ind) # select step length
+      step.len <- rgamma(1, shape = gammaShape, rate = gammaRate) # select step length
       step <- step.len * c(Re(exp((0+1i) * Phi_ind[Curr_indv])), Im(exp((0+1i) * Phi_ind[Curr_indv]))) # calculate amount by which to change x and y components
       next.loc <- XYind[[Curr_indv]][Curr_tmStp, ] + step # calculate coords of next location
       XYind[[Curr_indv]][Curr_tmStp + 1, ] <- next.loc # save next location
@@ -84,10 +86,10 @@ rumSim <- function(N_indv = 5, Scl = 300000, N_tmStp = 250, EtaCRW = 0.7, Kappa 
 }
 
 kappas <- c(1, 3, 5)
-EtaCRWs <- c(0.5, 0.7, 0.9, 1, 3)
+EtaCRWs <- c(0.5, 0.7, 0.9, 1)
 params <- expand.grid(K = kappas, E = EtaCRWs)
 
-out <- pmap_dfr(params, ~rumSim(N_indv = 5, Scl = 300000, N_tmStp = 500, EtaCRW = .y, Kappa = .x, StpSize_ind = 1000, StpStd_ind = 500))
+out <- pmap_dfr(params, ~runSim(N_indv = 10, Scl = Scl, N_tmStp = 500, EtaCRW = .y, Kappa = .x, gammaShape = gammaShape, gammaRate = gammaRate, Social_range = 0, startScl = startScl))
 
 out %>%
   ggplot(aes(x = V1, y = V2, col = factor(ind)))+
@@ -95,17 +97,54 @@ out %>%
   geom_path(linewidth = 0.2, aes(group = factor(ind)))+
   facet_grid(rows = vars(K), cols = vars(E))+
   ylab("Kappa")+ # kappa is roughly how direct
-  xlab("EtaCRW")
+  xlab("EtaCRW")+
+  theme_minimal()+
+  theme(legend.position = "none")+
+  theme(axis.text = element_blank())
 
 
-# sample animation code
-a <- df %>%
+
+nonSoc <- runSim(N_indv = N_indv, Scl = Scl, N_tmStp = 500, EtaCRW = 0.7, Kappa = 3, gammaShape = gammaShape, gammaRate = gammaRate, Social_range = 0, startScl = startScl)
+
+nonSoc %>%
   ggplot(aes(x = V1, y = V2, col = factor(ind)))+
-  geom_point(alpha = 0.5)+
   geom_path(linewidth = 0.5, aes(group = factor(ind)))+
-  transition_reveal(timestamp)+
-  NULL
-animate(a, fps = 10)
+  theme_minimal()+
+  theme(legend.position = "none")+
+  coord_equal()+
+  ggtitle("Non-sociable Agents")
+
+
+soc <- runSim(N_indv = N_indv, Scl = Scl, N_tmStp = 500, EtaCRW = 0.7, Kappa = 3, gammaShape = gammaShape, gammaRate = gammaRate, Social_range = 2500, startScl = startScl)
+
+soc %>%
+  ggplot(aes(x = V1, y = V2, col = factor(ind)))+
+  geom_path(linewidth = 0.5, aes(group = factor(ind)))+
+  theme_minimal()+
+  theme(legend.position = "none")+
+  coord_equal()+
+  ggtitle("Sociable Agents")
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # sample animation code
+# a <- df %>%
+#   ggplot(aes(x = V1, y = V2, col = factor(ind)))+
+#   geom_point(alpha = 0.5)+
+#   geom_path(linewidth = 0.5, aes(group = factor(ind)))+
+#   transition_reveal(timestamp)+
+#   NULL
+# animate(a, fps = 10)
 
 
 
