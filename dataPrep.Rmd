@@ -14,6 +14,7 @@ library(move)
 library(vultureUtils)
 library(tidyverse)
 library(feather) # for lightweight data storage
+library(readxl)
 ```
 
 # Download initial data--2020 through end of 2022
@@ -25,38 +26,52 @@ rm(pw)
 #dat <- vultureUtils::downloadVultures(loginObject = MB.LoginObject, removeDup = T, dfConvert = T, quiet = T, dateTimeStartUTC = "2020-01-01 00:00", dateTimeEndUTC = "2022-12-31 11:59")
 #write_feather(dat, "data/dat.feather")
 dat <- read_feather("data/dat.feather")
+dat$trackId[dat$trackId == "E03"] <- "E03w"
+dat$trackId <- droplevels(dat$trackId)
+
+# Add the Nili_id
+ww <- read_excel("data/whoswho_vultures_20230315_new.xlsx", sheet = "all gps tags")[,1:35] %>%
+  select(Nili_id, Movebank_id) %>%
+  distinct()
+
+all(dat$trackId %in% ww$Movebank_id) # true
+
+dat2 <- left_join(dat, ww, by = c("trackId" = "Movebank_id")) # XXX START HERE with new pkg version
+nrow(dat) == nrow(dat2)
+dat <- dat2 # just so I don't have to change the rest of the code
 ```
 
 Visualization: presence of vultures in the dataset over time.
 ```{r eval = FALSE}
 # Let's look at the presence of the vultures over time.
-# unique(dat$trackId)
+unique(dat$Nili_id)
 dates <- dat %>%
-  dplyr::select(trackId, dateOnly) %>%
+  dplyr::select(Nili_id, dateOnly) %>%
   distinct()
 
 dates %>%
-  ggplot(aes(x = trackId, y = dateOnly))+
+  ggplot(aes(x = Nili_id, y = dateOnly))+
   geom_point(size = 0.2)+
   coord_flip()
 ```
 
 Now I'd like to annotate this data with periods to remove
 ```{r}
-toRemove <- read.csv("data/whoswho_vultures04oct22_new.xlsx - periods_to_remove.csv")
-head(toRemove)
+toRemove <- read_excel("data/whoswho_vultures_20230315_new.xlsx", sheet = "periods_to_remove")
+
 toRemove <- toRemove %>%
-  dplyr::select("trackId" = Movebank_id,
+  dplyr::select(Nili_id,
+                "trackId" = Movebank_id,
                 remove_start,
                 remove_end,
                 reason) %>%
   mutate(across(c(remove_start, remove_end), .fns = function(x){
-    lubridate::dmy(x)
+    lubridate::ymd(x)
   })) %>%
   dplyr::filter(!is.na(remove_end))
 
 toRemove_long <- toRemove %>%
-  group_by(trackId, reason) %>%
+  group_by(Nili_id, reason) %>%
   # sequence of daily dates for each corresponding start, end elements
   dplyr::mutate(dateOnly = map2(remove_start, remove_end, seq, by = "1 day")) %>%
   # unnest the list column
@@ -68,17 +83,18 @@ toRemove_long <- toRemove %>%
 
 # Join to the original data
 datAnnot <- dat %>%
-  left_join(toRemove_long, by = c("trackId", "dateOnly")) %>%
+  left_join(toRemove_long, by = c("Nili_id", "dateOnly")) %>%
   mutate(status = replace_na(status, "valid"))
+nrow(datAnnot) == nrow(dat) #T
 ```
 
 Visualize: presence over time, coloring by vulture status (i.e. whether or not to remove the data)
 ```{r eval = FALSE}
 # Plot, coloring by the vulture status
 datAnnot %>%
-  dplyr::select(trackId, dateOnly, status) %>%
+  dplyr::select(Nili_id, dateOnly, status) %>%
   distinct() %>%
-  ggplot(aes(x = trackId, y = dateOnly, col = status))+
+  ggplot(aes(x = Nili_id, y = dateOnly, col = status))+
   geom_point(size = 0.2)+
   coord_flip()+
   guides(col = guide_legend(override.aes = list(size = 10)))+
@@ -87,9 +103,9 @@ datAnnot %>%
 # Try again, just removing the invalid data.
 datAnnot %>%
   filter(status == "valid") %>%
-  dplyr::select(trackId, dateOnly) %>%
+  dplyr::select(Nili_id, dateOnly) %>%
   distinct() %>%
-  ggplot(aes(x = trackId, y = dateOnly))+
+  ggplot(aes(x = Nili_id, y = dateOnly))+
   geom_point(size = 0.2)+
   coord_flip()
 ```
@@ -100,13 +116,13 @@ Compute metrics for each vulture's presence in the data.
 ## Compute start date, end date, and longest consecutive run.
 metrics <- datAnnot %>%
   filter(status == "valid") %>%
-  dplyr::select(trackId, dateOnly) %>%
+  dplyr::select(Nili_id, dateOnly) %>%
   distinct() %>%
-  group_by(trackId) %>%
+  group_by(Nili_id) %>%
   group_by(cumsum(c(0, diff(dateOnly) - 1))) %>%
   mutate(consecLen = n()) %>%
   ungroup() %>%
-  group_by(trackId) %>%
+  group_by(Nili_id) %>%
   summarize(startDate = min(dateOnly),
             endDate = max(dateOnly),
             longestRun = max(consecLen))
@@ -120,6 +136,6 @@ write_feather(datAnnot, "data/datAnnot.feather")
 Clean the data to remove invalid points:
 ```{r}
 mask <- sf::st_read("data/CutOffRegion.kml")
-datAnnotCleaned <- vultureUtils::cleanData(dataset = datAnnot, mask = mask, inMaskThreshold = 0.33, removeVars = F)
+datAnnotCleaned <- vultureUtils::cleanData(dataset = datAnnot, mask = mask, inMaskThreshold = 0.33, removeVars = F, idCol = "Nili_id")
 save(datAnnotCleaned, file = "data/datAnnotCleaned.Rda")
 ```
