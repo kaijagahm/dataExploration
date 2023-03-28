@@ -69,48 +69,13 @@ load("data/months.Rda")
 # save(monthRoosts, file = "data/monthRoosts.Rda")
 load("data/monthRoosts.Rda")
 
-# By month, create networks (feeding, flying, two types of roosting)
-# monthsFlight_2022 <- purrr::map(months, ~vultureUtils::getFlightEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 1000, return = "both"))
-# save(monthsFlight_2022, file = "data/monthsFlight_2022.Rda")
-# load("data/monthsFlight_2022.Rda")
-# 
-# monthsFeeding_2022 <- purrr::map(months, ~vultureUtils::getFeedingEdges(dataset = .x, roostPolygons = roostPolygons, distThreshold = 50, return = "both"))
-# save(monthsFeeding_2022, file = "data/monthsFeeding_2022.Rda")
-# load("data/monthsFeeding_2022.Rda")
-# 
-# months_roost_distance <- purrr::map(monthRoosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "distance", distThreshold = 500, return = "both"))
-# save(months_roost_distance, file = "data/months_roost_distance.Rda")
-# load("data/months_roost_distance.Rda")
-# 
-# months_roost_polygon <- purrr::map(monthRoosts, ~vultureUtils::getRoostEdges(dataset = .x, mode = "polygon", roostPolygons = roostPolygons, return = "both"))
-# save(months_roost_polygon, file = "data/months_roost_polygon.Rda")
-# load("data/months_roost_polygon.Rda")
-
-# Create network graphs for each of these
-#allVerts <- unique(tt$trackId)
-
-# g_flight <- map(monthsFlight_2022, ~vultureUtils::makeGraph(mode = "sri", data = .x$sri, weighted = T, vertices = allVerts))
-# g_feeding <- map(monthsFeeding_2022, ~vultureUtils::makeGraph(mode = "sri", data = .x$sri, weighted = T))
-# g_roost_distance <- map(months_roost_distance, ~vultureUtils::makeGraph(mode = "sri", data = .x$sri, weighted = T))
-# g_roost_polygon <- map(months_roost_polygon, ~vultureUtils::makeGraph(mode = "sri", data = .x$sri, weighted = T))
-
-# Make some plots using igraph
-# test <- g_flight[[1]]
-# plot(test, vertex.size = 10, edge.width = E(test)$weight, edge.color = "black")
-# allVerts <- map(g_flight, ~V(.x)) %>% unlist() %>% names() %>% unique()
-# flightLayout <- layout_with_fr(graph = g_flight[[1]])
-# plot(test, vertex.size = 10, edge.width = E(test)$weight, edge.color = "black", vertices = allVerts)
-
 # Test month: observed networks --------------------------------------------
 
 # Test data for permutations--let's use just one month of data.
-testMonth <- months[[1]] %>%
-  filter(lubridate::ymd(dateOnly) >= lubridate::ymd("2022-01-01") & lubridate::ymd(dateOnly) <= lubridate::ymd("2022-01-31"))
+testMonth <- months[[1]]
 
 # Get roosts for this test month
-#testMonthRoosts <- vultureUtils::get_roosts_df(df = testMonth, id = "trackId")
-#save(testMonthRoosts, file = "data/testMonthRoosts.Rda")
-load("data/testMonthRoosts.Rda")
+testMonthRoosts <- monthRoosts[[1]]
 
 # Get all four types of network
 getNetworks <- function(dataset, roosts, roostPolygons){
@@ -121,8 +86,8 @@ getNetworks <- function(dataset, roosts, roostPolygons){
   outList <- list("flight" = testMonthFlight, "feeding" = testMonthFeeding, "roostD" = testMonthRoostD, "roostP" = testMonthRoostP)
 }
 
-# testMonthNetworks <- getNetworks(dataset = testMonth, roosts = testMonthRoosts, roostPolygons = roostPolygons)
-# save(testMonthNetworks, file = "data/testMonthNetworks.Rda")
+testMonthNetworks <- getNetworks(dataset = testMonth, roosts = testMonthRoosts, roostPolygons = roostPolygons)
+save(testMonthNetworks, file = "data/testMonthNetworks.Rda")
 load("data/testMonthNetworks.Rda")
 
 # Make graphs
@@ -531,7 +496,7 @@ flightSBDMeans %>%
   theme_classic()+
   ylab("Density")+
   xlab("Mean SBD")+
-  geom_text(data = annot, aes(x = 0.45, y = c(6.5, 6, 5.5), col = type, label = paste("p = ", propAbove)), size = 5, fontface = "bold")
+  geom_text(data = annot, aes(x = 0.25, y = c(10.5, 10, 9.5), col = type, label = paste("p = ", propAbove)), size = 5, fontface = "bold")
 
 ## StD Density (raw) -------------------------------------------------------
 obsSD <- flightSBDMeans %>% filter(type == "observed") %>% pull(sdSBD)
@@ -552,7 +517,7 @@ flightSBDMeans %>%
   theme_classic()+
   ylab("Density")+
   xlab("Std Deviation of SBD")+
-  geom_text(data = annot, aes(x = 0.4, y = c(6.5, 6, 5.5), col = type, 
+  geom_text(data = annot, aes(x = 0.25, y = c(10.5, 10, 9.5), col = type, 
                               label = paste("p = ", propBelow)), size = 4, fontface = "bold")
 
 ## Ind boxplots (raw) ------------------------------------------------------
