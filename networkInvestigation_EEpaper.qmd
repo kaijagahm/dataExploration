@@ -79,7 +79,7 @@ checkmate::assertCharacter(timeThreshold, len = 1)
 
 # Get all unique individuals before applying any filtering
 if(includeAllVertices){
-  uniqueIndivs <- unique(dataset$trackId)
+  uniqueIndivs <- unique(dataset$Nili_id)
 }
 
 # Restrict interactions based on ground speed
@@ -110,7 +110,7 @@ if(nrow(points) == 0){
   if(quiet == T){
     timestampCol <- "timestamp"
     crsToSet <- "WGS84"
-    idCol <- "trackId"
+    idCol <- "Nili_id"
     latCol <- "location_lat"
     longCol <- "location_long"
     returnDist <- T
@@ -305,7 +305,7 @@ summ %>%
 head(flight)
 
 # Let's look at some from Noa's example screenshot.
-indivs <- c("A03w", "A05w")
+indivs <- c("Jill", "jog")
 example <- flight %>%
   filter(ID1 %in% indivs & ID2 %in% indivs)
 
@@ -319,8 +319,7 @@ example %>% group_by(timegroup) %>%
 
 # Consecutive time slices:
 head(example) # as we can see, we have interactions in consecutive time slices. Those are treated as separate edges in the network.
-``` 
-
+```
 
 ### What is the duration of "an interaction"?
 
@@ -400,40 +399,40 @@ durations_flight %>%
 
 durations_flight %>%
   filter(nTimegroups > 6) %>%
-  arrange(nTimegroups)
+  arrange(desc(nTimegroups))
 
-# Looking at the longest one, between A00w and J12w
+# Looking at the longest one, between armstrong and kat
 check <- flight %>%
-  filter(timegroup >= 322 & timegroup <= 347 & ID1 == "A00w" & ID2 == "J12w")
+  filter(timegroup >= 322 & timegroup <= 347 & ID1 == "armstrong" & ID2 == "kat")
 
 # Extract the timestamps and go back to the data
 mn <- min(check$minTimestamp)
 mx <- max(check$maxTimestamp)
 
-checkData1 <- subsetted %>% filter(trackId %in% c("A00w", "J12w"), timestamp >= mn, timestamp <= mx) %>%
+checkData1 <- subsetted %>% filter(Nili_id %in% c("armstrong", "kat"), timestamp >= mn, timestamp <= mx) %>%
   sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
   sf::st_set_crs("WGS84")
 
-mapview::mapview(checkData1, zcol = "trackId") # huh, so they seem to be flying together for a very long way, never more than a couple hundred meters apart. This strikes me as a bit suspicious. Do they actually fly that tightly together? Or was this a mis-recording of a single bird?
+mapview::mapview(checkData1, zcol = "Nili_id") # huh, so they seem to be flying together for a very long way, never more than a couple hundred meters apart. This strikes me as a bit suspicious. Do they actually fly that tightly together? Or was this a mis-recording of a single bird?
 
 # Let me check another one that's not quite as long
 durations_flight %>%
   filter(nTimegroups > 6) %>%
-  arrange(nTimegroups)
+  arrange(desc(nTimegroups))
 
 # Looking at the longest one, between A00w and J12w
 check <- flight %>%
-  filter(timegroup >= 1007 & timegroup <= 1014 & ID1 == "T25b" & ID2 == "T76w")
+  filter(timegroup >= 1007 & timegroup <= 1014 & ID1 == "nevada" & ID2 == "phili")
 
 # Extract the timestamps and go back to the data
 mn <- min(check$minTimestamp)
 mx <- max(check$maxTimestamp)
 
-checkData2 <- subsetted %>% filter(trackId %in% c("T25b", "T76w"), timestamp >= mn, timestamp <= mx) %>%
+checkData2 <- subsetted %>% filter(Nili_id %in% c("nevada", "phili"), timestamp >= mn, timestamp <= mx) %>%
   sf::st_as_sf(coords = c("location_long", "location_lat")) %>%
   sf::st_set_crs("WGS84")
 
-mapview::mapview(checkData2, zcol = "trackId") # looks pretty similar to the last one. But two different individuals. Maybe they just do this periodically!
+mapview::mapview(checkData2, zcol = "Nili_id") # looks pretty similar to the last one. But two different individuals. Maybe they just do this periodically!
 ```
 
 ### \# Monthly interactions, grouping timegroups
@@ -481,10 +480,10 @@ durations %>%
 
 ### SRI
 
-When does the SRI correction happen? Does it happen for each ten-minute interval, or overall?
-Do this first. When does Nitika implement it in her code? [I just checked, and it looks like she does it at the end.]
+When does the SRI correction happen? Does it happen for each ten-minute interval, or overall? Do this first. When does Nitika implement it in her code? \[I just checked, and it looks like she does it at the end.\]
 
 For each project, what's the region that we include and which individuals are we including? Use those for SRI.
+
 ```{r}
 #| include: false
 # Okay, so Nitika defines SRI as the ratio of [number of timegroups in which both individuals interact (aka co-occurrences)]/[number of timegroups in which both individuals occur in the dataset but don't necessarily interact (simultaneous datapoints)].
@@ -500,14 +499,14 @@ colnames(m1) <- row.names(m1)
 # M2: adjacency matrix for temporal co-occurrence (but not spatial)
 head(points_timegrouped)
 el_m2 <- points_timegrouped %>%
-  select(trackId, timegroup) %>%
+  select(Nili_id, timegroup) %>%
   distinct()
 timegroupList <- el_m2 %>%
   group_by(timegroup) %>%
   group_split()
 timegroupEdgelist <- timegroupList %>%
   map_dfr(., ~.x %>% 
-        pull(trackId) %>% 
+        pull(Nili_id) %>% 
         expand.grid(., ., stringsAsFactors = F))
 
 # now this is tricky. We want to remove self edges and remove reverse edges, but we *don't* want to remove duplicates.
@@ -537,7 +536,6 @@ all(m1 <= subset_m2) # yay!!
 sriMatrix <- m1/subset_m2
 ```
 
-
 ### Multiple interacting individuals
 
 ```{r}
@@ -551,8 +549,7 @@ bigGroup <- flight %>%
 
 # How many unique individuals?
 length(unique(c(bigGroup$ID1, bigGroup$ID2))) # 10 unique individuals
-nrow(bigGroup) # 22 edges during this timegroup
+nrow(bigGroup) # 29 edges during this timegroup
 
 # Multiple interacting individuals are just given their own edges. This almost certainly accounts for why the feeding network has so many more edges than the flight network.
 ```
-

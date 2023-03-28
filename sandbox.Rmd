@@ -23,7 +23,7 @@ library(sf)
 ```
 
 ```{r}
-datAnnotCleaned <- load("data/datAnnotCleaned.Rda")
+load("data/datAnnotCleaned.Rda")
 datAnnotCleaned <- sf::st_drop_geometry(datAnnotCleaned)
 mask <- sf::st_read("data/CutOffRegion.kml")
 roostPolygons <- sf::st_read("data/AllRoostPolygons.kml", quiet = TRUE) %>%
@@ -84,15 +84,15 @@ orniDeathsList <- orniDeaths %>%
 # I don't want all the column headings, just some of them:
 datAnnotSimp <- datAnnot %>%
   filter(status == "valid") %>%
-  dplyr::select(trackId, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status)
+  dplyr::select(Nili_id, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status)
 
 # get any "ghost data", aka "valid" data occurring after the date of death
 ghostData <- lapply(orniDeathsList, function(x){
   ghostData <- datAnnotSimp %>%
-    filter(trackId == x$Movebank_id[1]) %>%
+    filter(Nili_id == x$Nili_id[1]) %>%
     filter(dateOnly > x$date_death[1])
 })
-indivs <- lapply(ghostData, function(x){x$trackId[1]}) %>% unlist()
+indivs <- lapply(ghostData, function(x){x$Nili_id[1]}) %>% unlist()
 ```
 
 For each bird's death, extract all data 1 month before through 1 month after.
@@ -108,16 +108,16 @@ orniDeathsDat <- lapply(orniDeathsList, function(x){
 
 Get data on the number of individuals present each day before and after
 ```{r}
-whoDied <- lapply(orniDeathsList, function(x){x$Movebank_id[1]})
+whoDied <- lapply(orniDeathsList, function(x){x$Nili_id[1]})
 deathDates <- lapply(orniDeathsList, function(x){x$date_death[1]})
 
 nIndivsDaily <- suppressMessages(pmap(.l = list("dat" = orniDeathsDat, "date" = deathDates, "who" = whoDied), .f = function(dat, date, who){
   out <- dat %>% 
-    dplyr::select(dateOnly, trackId) %>% 
+    dplyr::select(dateOnly, Nili_id) %>% 
     distinct() %>% 
     mutate(deathDate = date) %>%
     group_by(dateOnly, deathDate) %>% 
-    summarize(nIndivs = length(unique(trackId))) %>%
+    summarize(nIndivs = length(unique(Nili_id))) %>%
     mutate(whoDied = who)
   return(out)
 })) %>%
@@ -182,21 +182,21 @@ Make sure we don't have any data after each bird's date of death
 ```{r}
 # Turn the data frame into a list so we can operate on each row. XXX I wonder if this isn't necessary.
 orniDeathsList <- orniDeaths %>%
-  group_by(Movebank_id) %>%
+  group_by(Nili_id) %>%
   group_split(.keep = T)
 
 # I don't want all the column headings, just some of them:
 datAnnotCleanedSimp <- datAnnotCleaned %>%
   filter(status == "valid") %>%
-  dplyr::select(trackId, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status, gps_time_to_fix, gps_satellite_count)
+  dplyr::select(Nili_id, timestamp, dateOnly, acceleration_raw_x, acceleration_raw_y, acceleration_raw_z, ground_speed, heading, location_lat, location_long, status, gps_time_to_fix, gps_satellite_count)
 
 # get any "ghost data", aka "valid" data occurring after the date of death
 ghostData <- lapply(orniDeathsList, function(x){
   ghostData <- datAnnotCleanedSimp %>%
-    filter(trackId == x$Movebank_id[1]) %>%
+    filter(Nili_id == x$Nili_id[1]) %>%
     filter(dateOnly > x$date_death[1])
 })
-indivs <- lapply(ghostData, function(x){x$trackId[1]}) %>% unlist()
+indivs <- lapply(ghostData, function(x){x$Nili_id[1]}) %>% unlist()
 ```
 
 For each bird's death, extract all data 1 month before through 1 month after.
@@ -217,11 +217,11 @@ deathDates <- lapply(orniDeathsList, function(x){x$date_death[1]})
 
 nIndivsDaily <- suppressMessages(pmap(.l = list("dat" = orniDeathsDat, "date" = deathDates, "who" = whoDied), .f = function(dat, date, who){
   out <- dat %>% 
-    dplyr::select(dateOnly, trackId) %>% 
+    dplyr::select(dateOnly, Nili_id) %>% 
     distinct() %>% 
     mutate(deathDate = date) %>%
     group_by(dateOnly, deathDate) %>% 
-    summarize(nIndivs = length(unique(trackId))) %>%
+    summarize(nIndivs = length(unique(Nili_id))) %>%
     mutate(whoDied = who)
   return(out)
 })) %>%
@@ -261,7 +261,7 @@ dailyFlightEdges <- lapply(testDeath, function(x){
   return(edgelist)
 })
 
-dailyFlightGraphs <- vultureUtils::makeGraphsList(dataList = dailyFlightEdges)$graphs
+dailyFlightGraphs <- map(dailyFlightEdges, ~vultureUtils::makeGraph(.x, mode = "edgelist"))
 ```
 
 Create flight networks for the days before and after the death date
@@ -273,11 +273,6 @@ before <- df %>% filter(dateOnly < deathDates[[2]])
 after <- df %>% filter(dateOnly > deathDates[[2]])
 elBefore <- vultureUtils::getFlightEdges(dataset = before, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250)
 elAfter <- vultureUtils::getFlightEdges(dataset = after, roostPolygons = roostPolygons, roostBuffer = 50, consecThreshold = 2, distThreshold = 250)
-gBefore <- vultureUtils::makeGraphs(elBefore, interval = "5 days")$graphs
-gAfter <- vultureUtils::makeGraphs(elAfter, interval = "5 days")$graphs
-
-plot(gBefore[[length(gBefore)]])
-plot(gAfter[[1]])
 ```
 
 
