@@ -130,8 +130,8 @@ for (Curr_tmStp in 1:(N_tmStp-1)){
     coo <- BiasPoint  - XYind[[Curr_indv]][Curr_tmStp, ] #cheking direction to the Bias point of this individual, change the second ccomp to have another bias
     mu <- Arg(coo[1] + (0+1i) * coo[2])#
     if (mu < 0)  {   mu <- mu + 2 * pi  }#just making sure direction is not negative
-    mu.av <- Arg(EtaCRW * exp(Phi_ind[Curr_indv] * (0+1i)) + (1 - EtaCRW) * exp(mu * (0+1i))) #bias to initial location + CRW to find the von mises center for next step
-    Phi_ind[Curr_indv] <- rvm(n=1, mean = mu.av, k = Kappa_ind)#choosing curr step direction from vonMises centered around the direction selected above 
+    mu.av <- Arg(EtaCRW * exp(Phi_ind[Curr_indv] * (0+1i)) + (1 - EtaCRW) * exp(mu * (0+1i))) # Bias to initial location + CRW to find the von Mises center for the next step
+    Phi_ind[Curr_indv] <- rvm(n=1, mean = mu.av, k = Kappa_ind) # Choose current step direction from von Mises distribution centered around the direction `mu.av` selected above.
     
     
     ##### preforming step #########
